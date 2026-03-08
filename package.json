@@ -1,0 +1,16 @@
+{
+  "name": "cpap-care-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "backend": "cd backend && node src/server.js",
+    "frontend": "cd admin-portal && npm run dev",
+    "start": "concurrently \"npm run backend\" \"npm run frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "dependencies": {
+    "axios": "^1.13.6"
+  }
+}
