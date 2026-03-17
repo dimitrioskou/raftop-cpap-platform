@@ -72,6 +72,12 @@ export default function Sidebar() {
           <NavLink to="/" end style={navLinkStyle}>
             Dashboard
           </NavLink>
+          <NavLink to="/executive-analytics" style={navLinkStyle}>
+            Executive Analytics
+          </NavLink>
+          <NavLink to="/staff-performance" style={navLinkStyle}>
+            Staff Performance
+          </NavLink>
           <NavLink to="/search" style={navLinkStyle}>
             Search Center
           </NavLink>

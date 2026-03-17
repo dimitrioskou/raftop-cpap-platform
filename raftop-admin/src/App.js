@@ -6,6 +6,9 @@ import AdminLayout from './layouts/AdminLayout';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 import Dashboard from './pages/Dashboard';
+import ExecutiveAnalytics from './pages/ExecutiveAnalytics';
+import StaffPerformance from './pages/StaffPerformance';
+import SearchCenter from './pages/SearchCenter';
 import Patients from './pages/Patients';
 import PatientProfile from './pages/PatientProfile';
 import Devices from './pages/Devices';
@@ -21,7 +24,6 @@ import PriorityQueue from './pages/PriorityQueue';
 import DailyActionBoard from './pages/DailyActionBoard';
 import RecheckScheduler from './pages/RecheckScheduler';
 import RecoveryFunnel from './pages/RecoveryFunnel';
-import SearchCenter from './pages/SearchCenter';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 
@@ -51,6 +53,24 @@ export default function App() {
           element={
             <ProtectedRoute title="Dashboard">
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/executive-analytics"
+          element={
+            <ProtectedRoute title="Executive Analytics">
+              <ExecutiveAnalytics />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/staff-performance"
+          element={
+            <ProtectedRoute title="Staff Performance">
+              <StaffPerformance />
             </ProtectedRoute>
           }
         />

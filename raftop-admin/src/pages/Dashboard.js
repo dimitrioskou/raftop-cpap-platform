@@ -102,6 +102,7 @@ export default function Dashboard() {
   const [outcomesSummary, setOutcomesSummary] = useState(null);
   const [recentOutcomes, setRecentOutcomes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showExecutiveModal, setShowExecutiveModal] = useState(true);
 
   useEffect(() => {
     async function loadDashboard() {
@@ -200,12 +201,558 @@ export default function Dashboard() {
     criticalFollowUpPatients.length > 0 ||
     criticalPriorityQueue.length > 0;
 
+  const executiveDemoStats = {
+    recoveredPatients: 1840,
+    avgUsageHours: 76,
+    repeatabilityScore: 88,
+    activeStaff: 14
+  };
+
+  const commercialDemoStats = {
+    atRiskRevenuePatients: 312,
+    recoveryOpportunityPatients: 824,
+    highValueReferrals: 46,
+    missedFollowUpsCost: '€8.500',
+    growthOpportunity: '€18.000+',
+    retainedValue: '€12.000+'
+  };
+
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24, position: 'relative' }}>
+      {!loading && showExecutiveModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(17,24,39,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 20
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 820,
+              background: '#ffffff',
+              borderRadius: 20,
+              overflow: 'hidden',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.25)'
+            }}
+          >
+            <div
+              style={{
+                padding: 20,
+                background: 'linear-gradient(135deg, #991b1b 0%, #dc2626 100%)',
+                color: '#ffffff'
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-flex',
+                  padding: '5px 10px',
+                  borderRadius: 999,
+                  background: 'rgba(255,255,255,0.18)',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  marginBottom: 10
+                }}
+              >
+                OWNER ALERT
+              </div>
+
+              <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>
+                High operational and commercial attention required
+              </div>
+
+              <div style={{ color: '#fee2e2', lineHeight: 1.55 }}>
+                The platform indicates both operational risk and clear commercial opportunity.
+                Immediate review can protect revenue and increase recovery value.
+              </div>
+            </div>
+
+            <div style={{ padding: 20 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: 12,
+                  marginBottom: 18
+                }}
+              >
+                <div style={{ ...cardStyle, padding: 14 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Critical Cases
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#dc2626' }}>
+                    {criticalFollowUpPatients.length}
+                  </div>
+                </div>
+
+                <div style={{ ...cardStyle, padding: 14 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Overdue Tasks
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#ea580c' }}>
+                    {overdueTasks.length}
+                  </div>
+                </div>
+
+                <div style={{ ...cardStyle, padding: 14 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Revenue at Risk
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#b45309' }}>
+                    {commercialDemoStats.missedFollowUpsCost}
+                  </div>
+                </div>
+
+                <div style={{ ...cardStyle, padding: 14 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Growth Opportunity
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a' }}>
+                    {commercialDemoStats.growthOpportunity}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 14,
+                  background: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  marginBottom: 18
+                }}
+              >
+                <div style={{ fontWeight: 800, color: '#111827', marginBottom: 8 }}>
+                  Recommended owner action
+                </div>
+                <div style={{ color: '#374151', lineHeight: 1.6 }}>
+                  Focus on the warning and critical groups first, reduce missed callbacks,
+                  recover at-risk patient value, and use staff repeatability insights to improve
+                  execution discipline. This protects recurring value and creates upsell / partner growth opportunities.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  justifyContent: 'flex-end',
+                  flexWrap: 'wrap'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowExecutiveModal(false)}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: 10,
+                    border: '1px solid #d1d5db',
+                    background: '#ffffff',
+                    color: '#111827',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Close
+                </button>
+
+                <Link
+                  to="/executive-analytics"
+                  onClick={() => setShowExecutiveModal(false)}
+                  style={{
+                    ...quickActionStyle,
+                    background: '#111827',
+                    color: '#ffffff',
+                    border: '1px solid #111827'
+                  }}
+                >
+                  Open Executive Analytics
+                </Link>
+
+                <Link
+                  to="/staff-performance"
+                  onClick={() => setShowExecutiveModal(false)}
+                  style={{
+                    ...quickActionStyle,
+                    background: '#dc2626',
+                    color: '#ffffff',
+                    border: '1px solid #dc2626'
+                  }}
+                >
+                  Open Staff Performance
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <h1 style={{ marginBottom: 8 }}>RAFTOP Admin Dashboard</h1>
       <p style={{ color: '#4b5563', marginBottom: 24 }}>
-        Operational control center for patients, devices, compliance and follow-up actions.
+        Operational control center for patients, devices, compliance, follow-up actions and executive management insight.
       </p>
+
+      {!loading && (
+        <div
+          style={{
+            marginBottom: 24,
+            borderRadius: 18,
+            padding: 18,
+            border: '1px solid #fecaca',
+            background: 'linear-gradient(135deg, #fff1f2 0%, #fef2f2 100%)',
+            boxShadow: '0 4px 14px rgba(220,38,38,0.08)'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 16,
+              flexWrap: 'wrap'
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  background: '#dc2626',
+                  color: '#ffffff',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  marginBottom: 10
+                }}
+              >
+                EXECUTIVE RISK ALERT
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 800,
+                  color: '#991b1b',
+                  marginBottom: 8
+                }}
+              >
+                Immediate management attention recommended
+              </div>
+
+              <div style={{ color: '#7f1d1d', fontSize: 15, marginBottom: 12 }}>
+                High operational pressure detected across follow-up activity, priority queue
+                and staff discipline indicators.
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                  gap: 10
+                }}
+              >
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fecaca',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Critical Cases
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#dc2626' }}>
+                    {criticalFollowUpPatients.length}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fecaca',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Overdue Tasks
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#ea580c' }}>
+                    {overdueTasks.length}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fecaca',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Offline Devices
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#2563eb' }}>
+                    {offlineDevices.length}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fecaca',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Team Repeatability
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#7c3aed' }}>
+                    88/100
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                minWidth: 280,
+                flex: '0 0 320px',
+                background: '#ffffff',
+                border: '1px solid #fecaca',
+                borderRadius: 14,
+                padding: 14
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: '#991b1b',
+                  marginBottom: 8
+                }}
+              >
+                Recommended Action
+              </div>
+
+              <div style={{ color: '#374151', marginBottom: 14, lineHeight: 1.55 }}>
+                Review critical follow-up queue, overdue callbacks and staff execution
+                consistency today. Priority coaching and queue cleanup are recommended.
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: 10
+                }}
+              >
+                <Link to="/executive-analytics" style={quickActionStyle}>
+                  Open Executive Analytics
+                </Link>
+                <Link to="/staff-performance" style={quickActionStyle}>
+                  Open Staff Performance
+                </Link>
+                <Link to="/followup" style={quickActionStyle}>
+                  Open Follow-up Center
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && (
+        <div
+          style={{
+            marginBottom: 24,
+            borderRadius: 18,
+            padding: 18,
+            border: '1px solid #fde68a',
+            background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+            boxShadow: '0 4px 14px rgba(245,158,11,0.08)'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 16,
+              flexWrap: 'wrap'
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  background: '#d97706',
+                  color: '#ffffff',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  marginBottom: 10
+                }}
+              >
+                COMMERCIAL OPPORTUNITY ALERT
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 800,
+                  color: '#92400e',
+                  marginBottom: 8
+                }}
+              >
+                Revenue protection and growth opportunity detected
+              </div>
+
+              <div style={{ color: '#92400e', fontSize: 15, marginBottom: 12 }}>
+                The application indicates where money may be lost through missed follow-up
+                and where additional value can be created through recovery, retention and partner growth.
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                  gap: 10
+                }}
+              >
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fde68a',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Revenue at Risk
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#b45309' }}>
+                    {commercialDemoStats.missedFollowUpsCost}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fde68a',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Growth Opportunity
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#16a34a' }}>
+                    {commercialDemoStats.growthOpportunity}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fde68a',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    Retained Value
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#2563eb' }}>
+                    {commercialDemoStats.retainedValue}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fde68a',
+                    borderRadius: 12,
+                    padding: 12
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                    High-Value Referrals
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#7c3aed' }}>
+                    {commercialDemoStats.highValueReferrals}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                minWidth: 280,
+                flex: '0 0 320px',
+                background: '#ffffff',
+                border: '1px solid #fde68a',
+                borderRadius: 14,
+                padding: 14
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: '#92400e',
+                  marginBottom: 8
+                }}
+              >
+                How to gain more money / avoid loss
+              </div>
+
+              <div style={{ color: '#374151', marginBottom: 14, lineHeight: 1.55 }}>
+                Prioritize warning and critical patients, reduce missed callbacks, convert more
+                referrals to active long-term follow-up, and use analytics to identify the best-performing
+                clinics, doctors and staff workflows.
+              </div>
+
+              <div style={{ display: 'grid', gap: 8, color: '#374151', marginBottom: 14 }}>
+                <div>• recover value from at-risk patients before churn or disengagement</div>
+                <div>• increase conversion of referrals into stable active cases</div>
+                <div>• identify top-performing partner accounts for growth expansion</div>
+                <div>• reduce money loss from delayed follow-up and inconsistent execution</div>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: 10
+                }}
+              >
+                <Link to="/executive-analytics" style={quickActionStyle}>
+                  Open Revenue Insights
+                </Link>
+                <Link to="/followup" style={quickActionStyle}>
+                  Open Recovery Workflows
+                </Link>
+                <Link to="/staff-performance" style={quickActionStyle}>
+                  Improve Team Execution
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div style={cardStyle}>Loading dashboard...</div>
@@ -319,6 +866,43 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 16,
+              marginBottom: 24
+            }}
+          >
+            <div style={cardStyle}>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Recovered Patients</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#16a34a' }}>
+                {executiveDemoStats.recoveredPatients}
+              </div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Avg Usage Hours</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#2563eb' }}>
+                {executiveDemoStats.avgUsageHours}h
+              </div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Team Repeatability</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#7c3aed' }}>
+                {executiveDemoStats.repeatabilityScore}/100
+              </div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Active Staff</div>
+              <div style={{ fontSize: 28, fontWeight: 700 }}>
+                {executiveDemoStats.activeStaff}
+              </div>
+            </div>
+          </div>
+
           {outcomesSummary && (
             <div
               style={{
@@ -381,6 +965,8 @@ export default function Dashboard() {
                 gap: 12
               }}
             >
+              <Link to="/executive-analytics" style={quickActionStyle}>Open Executive Analytics</Link>
+              <Link to="/staff-performance" style={quickActionStyle}>Open Staff Performance</Link>
               <Link to="/followup" style={quickActionStyle}>Open Follow-up Center</Link>
               <Link to="/followup-outcomes" style={quickActionStyle}>Open Outcomes Summary</Link>
               <Link to="/compliance" style={quickActionStyle}>Open 80h Compliance</Link>
@@ -392,6 +978,39 @@ export default function Dashboard() {
               <Link to="/devices" style={quickActionStyle}>Open Devices</Link>
               <Link to="/notes" style={quickActionStyle}>Open Notes</Link>
             </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 16,
+              marginBottom: 24
+            }}
+          >
+            <Link to="/executive-analytics" style={linkCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Executive Analytics Preview</h3>
+              <p style={{ color: '#4b5563', marginBottom: 12 }}>
+                Διοικητική εικόνα για συμμόρφωση, recovery, brands, operational performance, revenue opportunity και management signals.
+              </p>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ color: '#111827', fontWeight: 600 }}>Recovered Patients: 1,840</div>
+                <div style={{ color: '#111827', fontWeight: 600 }}>Average Usage: 76h</div>
+                <div style={{ color: '#111827', fontWeight: 600 }}>Growth Opportunity: €18.000+</div>
+              </div>
+            </Link>
+
+            <Link to="/staff-performance" style={linkCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Staff Performance Preview</h3>
+              <p style={{ color: '#4b5563', marginBottom: 12 }}>
+                Παρακολούθηση productivity, workflow discipline και repeatability score ανά υπάλληλο.
+              </p>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ color: '#111827', fontWeight: 600 }}>Average Repeatability: 88/100</div>
+                <div style={{ color: '#111827', fontWeight: 600 }}>Tasks Closed Today: 97</div>
+                <div style={{ color: '#111827', fontWeight: 600 }}>Overdue Tasks: 38</div>
+              </div>
+            </Link>
           </div>
 
           <div style={{ marginBottom: 24 }}>
@@ -698,6 +1317,16 @@ export default function Dashboard() {
             <Link to="/recovery-funnel" style={linkCardStyle}>
               <h3 style={{ marginTop: 0 }}>Recovery Funnel</h3>
               <p style={{ color: '#4b5563' }}>Track patients from risk to improvement and recovery.</p>
+            </Link>
+
+            <Link to="/executive-analytics" style={linkCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Executive Analytics</h3>
+              <p style={{ color: '#4b5563' }}>Management statistics for owner, strategy and revenue opportunity.</p>
+            </Link>
+
+            <Link to="/staff-performance" style={linkCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Staff Performance</h3>
+              <p style={{ color: '#4b5563' }}>View staff productivity, discipline and repeatability.</p>
             </Link>
 
             <Link to="/followup-outcomes" style={linkCardStyle}>
