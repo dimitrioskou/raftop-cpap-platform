@@ -104,9 +104,9 @@ async function verifyPassword(user, plainPassword) {
 
   if (storedHash) {
     try {
-      return await bcrypt.compare(plainPassword, storedHash);
+      return await bcrypt.compare(String(plainPassword), String(storedHash));
     } catch (_error) {
-      return plainPassword === storedHash;
+      return String(plainPassword) === String(storedHash);
     }
   }
 
@@ -143,27 +143,60 @@ function buildUserPayload(user) {
   };
 }
 
-function signToken(userPayload) {
-  const secret =
+function getJwtSecret() {
+  return (
     process.env.JWT_SECRET ||
     process.env.JWT_KEY ||
     process.env.ACCESS_TOKEN_SECRET ||
     process.env.TOKEN_SECRET ||
-    'raftop_dev_secret';
+    'raftop_dev_secret'
+  );
+}
 
+function signToken(userPayload) {
   return jwt.sign(
     {
       id: userPayload.id,
+      userId: userPayload.userId,
       email: userPayload.email,
       role: userPayload.role,
       tenantId: userPayload.tenantId,
       organizationId: userPayload.organizationId
     },
-    secret,
+    getJwtSecret(),
     {
       expiresIn: '7d'
     }
   );
+}
+
+function readBearerToken(req) {
+  const header =
+    req.headers.authorization ||
+    req.headers.Authorization ||
+    '';
+
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    return header.slice(7).trim();
+  }
+
+  return '';
+}
+
+function decodeToken(token) {
+  if (!token) {
+    return null;
+  }
+
+  try {
+    return jwt.verify(token, getJwtSecret());
+  } catch (_error) {
+    try {
+      return jwt.decode(token);
+    } catch (__error) {
+      return null;
+    }
+  }
 }
 
 router.post('/login', async (req, res) => {
@@ -206,42 +239,35 @@ router.post('/login', async (req, res) => {
       user: userPayload
     });
   } catch (error) {
+    console.error('AUTH LOGIN ERROR:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      code: error?.code,
+      detail: error?.detail,
+      hint: error?.hint,
+      constraint: error?.constraint
+    });
+
     return res.status(500).json({
       ok: false,
-      message: error.message || 'Login failed.'
+      message: 'Login failed.'
     });
   }
 });
 
 router.get('/me', async (req, res) => {
   try {
-    const header =
-      req.headers.authorization ||
-      req.headers.Authorization ||
-      '';
+    const token = readBearerToken(req);
 
-    if (!header.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({
         ok: false,
         message: 'Unauthorized'
       });
     }
 
-    const token = header.slice(7).trim();
-    const secret =
-      process.env.JWT_SECRET ||
-      process.env.JWT_KEY ||
-      process.env.ACCESS_TOKEN_SECRET ||
-      process.env.TOKEN_SECRET ||
-      'raftop_dev_secret';
-
-    let decoded = null;
-
-    try {
-      decoded = jwt.verify(token, secret);
-    } catch (_error) {
-      decoded = jwt.decode(token);
-    }
+    const decoded = decodeToken(token);
 
     if (!decoded?.email) {
       return res.status(401).json({
@@ -264,9 +290,19 @@ router.get('/me', async (req, res) => {
       user: buildUserPayload(user)
     });
   } catch (error) {
+    console.error('AUTH ME ERROR:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      code: error?.code,
+      detail: error?.detail,
+      hint: error?.hint,
+      constraint: error?.constraint
+    });
+
     return res.status(500).json({
       ok: false,
-      message: error.message || 'Profile lookup failed.'
+      message: 'Profile lookup failed.'
     });
   }
 });
