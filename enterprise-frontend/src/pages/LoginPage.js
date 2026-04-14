@@ -33,12 +33,7 @@ const DEMO_USERS = [
   {
     label: 'Tenant Admin',
     email: 'admin@raftop.local',
-    password: 'Raftop123!'
-  },
-  {
-    label: 'Doctor User',
-    email: 'doctor@raftop.local',
-    password: 'Raftop123!'
+    password: 'admin123!'
   }
 ];
 
@@ -48,7 +43,7 @@ export default function LoginPage() {
   const { login, loading, isAuthenticated, bootstrapping } = useAuth();
 
   const [email, setEmail] = useState('admin@raftop.local');
-  const [password, setPassword] = useState('Raftop123!');
+const [password, setPassword] = useState('admin123!');
   const [error, setError] = useState('');
 
   const redirectTo = useMemo(() => {

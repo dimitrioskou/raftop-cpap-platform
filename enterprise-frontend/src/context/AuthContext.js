@@ -23,6 +23,12 @@ const LEGACY_KEYS = [
   'raftop_user'
 ];
 
+const API_BASE = (process.env.REACT_APP_API_URL || 'https://raftop-enterprise-backend.onrender.com').replace(/\/+$/, '');
+
+function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
 function safeJsonParse(raw) {
   try {
     return raw ? JSON.parse(raw) : null;
@@ -152,7 +158,7 @@ export function AuthProvider({ children }) {
       setLoading(true);
 
       try {
-        const response = await fetch('/api/auth/login', {
+        const response = await fetch(apiUrl('/api/auth/login'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -191,7 +197,7 @@ export function AuthProvider({ children }) {
     try {
       const existingToken = readStoredToken();
 
-      await fetch('/api/auth/logout', {
+      await fetch(apiUrl('/api/auth/logout'), {
         method: 'POST',
         headers: existingToken
           ? {
@@ -218,7 +224,7 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const response = await fetch('/api/auth/me', {
+      const response = await fetch(apiUrl('/api/auth/me'), {
         method: 'GET',
         headers: {
           Accept: 'application/json',
