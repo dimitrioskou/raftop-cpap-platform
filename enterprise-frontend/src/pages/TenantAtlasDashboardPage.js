@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import TenantLayout from '../layouts/TenantLayout';
 
 const API_BASE = (
   process.env.REACT_APP_API_URL || 'https://raftop-enterprise-backend.onrender.com'
@@ -109,16 +108,8 @@ function normalizeAtlasSummary(summaryPayload, dashboardPayload) {
       source?.caseCount,
       source?.counts?.openCases
     ),
-    alerts: firstNumber(
-      source?.alerts,
-      source?.alertCount,
-      source?.counts?.alerts
-    ),
-    tasks: firstNumber(
-      source?.tasks,
-      source?.taskCount,
-      source?.counts?.tasks
-    ),
+    alerts: firstNumber(source?.alerts, source?.alertCount, source?.counts?.alerts),
+    tasks: firstNumber(source?.tasks, source?.taskCount, source?.counts?.tasks),
     autoActions: firstNumber(
       source?.autoActions,
       source?.auto_actions,
@@ -145,40 +136,18 @@ function normalizeAtlasSummary(summaryPayload, dashboardPayload) {
       dashboard?.lastSync,
       dashboard?.last_sync
     ),
-    message: firstText(
-      summaryPayload?.message,
-      dashboardPayload?.message
-    )
+    message: firstText(summaryPayload?.message, dashboardPayload?.message)
   };
 }
 
 function cardStyle(tone = 'blue') {
   const tones = {
-    blue: {
-      border: '1px solid #bfdbfe',
-      background: '#eff6ff'
-    },
-    purple: {
-      border: '1px solid #ddd6fe',
-      background: '#f5f3ff'
-    },
-    green: {
-      border: '1px solid #bbf7d0',
-      background: '#f0fdf4'
-    },
-    orange: {
-      border: '1px solid #fed7aa',
-      background: '#fff7ed'
-    },
-    red: {
-      border: '1px solid #fecaca',
-      background: '#fef2f2'
-    },
-    dark: {
-      border: '1px solid #0f172a',
-      background: '#0f172a',
-      color: '#fff'
-    }
+    blue: { border: '1px solid #bfdbfe', background: '#eff6ff' },
+    purple: { border: '1px solid #ddd6fe', background: '#f5f3ff' },
+    green: { border: '1px solid #bbf7d0', background: '#f0fdf4' },
+    orange: { border: '1px solid #fed7aa', background: '#fff7ed' },
+    red: { border: '1px solid #fecaca', background: '#fef2f2' },
+    dark: { border: '1px solid #0f172a', background: '#0f172a', color: '#fff' }
   };
 
   return {
@@ -194,9 +163,7 @@ export default function TenantAtlasDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [summary, setSummary] = useState(() =>
-    normalizeAtlasSummary({}, {})
-  );
+  const [summary, setSummary] = useState(() => normalizeAtlasSummary({}, {}));
 
   const loadSummary = useCallback(async ({ signal, silent = false } = {}) => {
     if (silent) {
@@ -225,209 +192,156 @@ export default function TenantAtlasDashboardPage() {
   useEffect(() => {
     const controller = new AbortController();
     loadSummary({ signal: controller.signal });
-
     return () => controller.abort();
   }, [loadSummary]);
 
   return (
-    <TenantLayout title="ATLAS Dashboard">
+    <div style={{ display: 'grid', gap: 18, padding: 22 }}>
       <div
         style={{
-          display: 'grid',
-          gap: 18
+          borderRadius: 24,
+          padding: 22,
+          color: '#fff',
+          background:
+            'linear-gradient(135deg, #0f172a 0%, #0b1f5f 45%, #14532d 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16
         }}
       >
-        <div
-          style={{
-            borderRadius: 24,
-            padding: 22,
-            color: '#fff',
-            background:
-              'linear-gradient(135deg, #0f172a 0%, #0b1f5f 45%, #14532d 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 900,
-                letterSpacing: 0.6,
-                color: '#86efac',
-                marginBottom: 6
-              }}
-            >
-              ATLAS SYSTEM
-            </div>
-            <div
-              style={{
-                fontSize: 24,
-                fontWeight: 900,
-                marginBottom: 6
-              }}
-            >
-              ATLAS Dashboard
-            </div>
-            <div style={{ color: '#dcfce7' }}>
-              Prioritization, alerts and operational summary for live follow-up workflows.
-            </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 0.6, color: '#86efac', marginBottom: 6 }}>
+            ATLAS SYSTEM
           </div>
-
-          <button
-            type="button"
-            onClick={() => loadSummary({ silent: true })}
-            disabled={refreshing}
-            style={{
-              border: '1px solid rgba(255,255,255,0.25)',
-              background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-              color: '#fff',
-              borderRadius: 16,
-              padding: '12px 18px',
-              fontWeight: 800,
-              cursor: refreshing ? 'not-allowed' : 'pointer',
-              opacity: refreshing ? 0.7 : 1,
-              whiteSpace: 'nowrap'
-            }}
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
+          <div style={{ fontSize: 24, fontWeight: 900, marginBottom: 6 }}>ATLAS Dashboard</div>
+          <div style={{ color: '#dcfce7' }}>
+            Prioritization, alerts and operational summary for live follow-up workflows.
+          </div>
         </div>
 
-        {summary?.message ? (
+        <button
+          type="button"
+          onClick={() => loadSummary({ silent: true })}
+          disabled={refreshing}
+          style={{
+            border: '1px solid rgba(255,255,255,0.25)',
+            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+            color: '#fff',
+            borderRadius: 16,
+            padding: '12px 18px',
+            fontWeight: 800,
+            cursor: refreshing ? 'not-allowed' : 'pointer',
+            opacity: refreshing ? 0.7 : 1,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {summary?.message ? (
+        <div
+          style={{
+            borderRadius: 18,
+            padding: '16px 18px',
+            border: '1px solid #fde68a',
+            background: '#fffbeb',
+            color: '#92400e',
+            fontWeight: 700
+          }}
+        >
+          {summary.message}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div
+          style={{
+            borderRadius: 18,
+            padding: '16px 18px',
+            border: '1px solid #fca5a5',
+            background: '#fef2f2',
+            color: '#b42318',
+            fontWeight: 700
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div
+          style={{
+            border: '1px solid #e5e7eb',
+            background: '#fff',
+            borderRadius: 24,
+            padding: 24,
+            fontWeight: 800,
+            color: '#101828'
+          }}
+        >
+          Loading ATLAS dashboard...
+        </div>
+      ) : (
+        <>
           <div
             style={{
-              borderRadius: 18,
-              padding: '16px 18px',
-              border: '1px solid #fde68a',
-              background: '#fffbeb',
-              color: '#92400e',
-              fontWeight: 700
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 14
             }}
           >
-            {summary.message}
-          </div>
-        ) : null}
+            <div style={cardStyle('dark')}>
+              <div style={{ color: 'rgba(255,255,255,0.8)', fontWeight: 700, marginBottom: 8 }}>
+                Open Cases
+              </div>
+              <div style={{ fontSize: 42, fontWeight: 900 }}>{summary.openCases}</div>
+            </div>
 
-        {error ? (
-          <div
-            style={{
-              borderRadius: 18,
-              padding: '16px 18px',
-              border: '1px solid #fca5a5',
-              background: '#fef2f2',
-              color: '#b42318',
-              fontWeight: 700
-            }}
-          >
-            {error}
-          </div>
-        ) : null}
+            <div style={cardStyle('red')}>
+              <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>Critical Follow-ups</div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: '#dc2626' }}>{summary.criticalFollowups}</div>
+            </div>
 
-        {loading ? (
+            <div style={cardStyle('orange')}>
+              <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>Warning Follow-ups</div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: '#c2410c' }}>{summary.warningFollowups}</div>
+            </div>
+
+            <div style={cardStyle('purple')}>
+              <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>Alerts</div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: '#7c3aed' }}>{summary.alerts}</div>
+            </div>
+
+            <div style={cardStyle('blue')}>
+              <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>Tasks</div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: '#1d4ed8' }}>{summary.tasks}</div>
+            </div>
+
+            <div style={cardStyle('green')}>
+              <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>Auto Actions</div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: '#15803d' }}>{summary.autoActions}</div>
+            </div>
+          </div>
+
           <div
             style={{
               border: '1px solid #e5e7eb',
               background: '#fff',
               borderRadius: 24,
-              padding: 24,
-              fontWeight: 800,
-              color: '#101828'
+              padding: 22
             }}
           >
-            Loading ATLAS dashboard...
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#101828', marginBottom: 12 }}>
+              ATLAS Last Sync
+            </div>
+            <div style={{ color: '#475467', fontWeight: 700 }}>
+              {summary.lastSync || 'No ATLAS sync timestamp available yet.'}
+            </div>
           </div>
-        ) : (
-          <>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 14
-              }}
-            >
-              <div style={cardStyle('dark')}>
-                <div style={{ color: 'rgba(255,255,255,0.8)', fontWeight: 700, marginBottom: 8 }}>
-                  Open Cases
-                </div>
-                <div style={{ fontSize: 42, fontWeight: 900 }}>
-                  {summary.openCases}
-                </div>
-              </div>
-
-              <div style={cardStyle('red')}>
-                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
-                  Critical Follow-ups
-                </div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: '#dc2626' }}>
-                  {summary.criticalFollowups}
-                </div>
-              </div>
-
-              <div style={cardStyle('orange')}>
-                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
-                  Warning Follow-ups
-                </div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: '#c2410c' }}>
-                  {summary.warningFollowups}
-                </div>
-              </div>
-
-              <div style={cardStyle('purple')}>
-                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
-                  Alerts
-                </div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: '#7c3aed' }}>
-                  {summary.alerts}
-                </div>
-              </div>
-
-              <div style={cardStyle('blue')}>
-                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
-                  Tasks
-                </div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: '#1d4ed8' }}>
-                  {summary.tasks}
-                </div>
-              </div>
-
-              <div style={cardStyle('green')}>
-                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
-                  Auto Actions
-                </div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: '#15803d' }}>
-                  {summary.autoActions}
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: '1px solid #e5e7eb',
-                background: '#fff',
-                borderRadius: 24,
-                padding: 22
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  color: '#101828',
-                  marginBottom: 12
-                }}
-              >
-                ATLAS Last Sync
-              </div>
-              <div style={{ color: '#475467', fontWeight: 700 }}>
-                {summary.lastSync || 'No ATLAS sync timestamp available yet.'}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </TenantLayout>
+        </>
+      )}
+    </div>
   );
 }
