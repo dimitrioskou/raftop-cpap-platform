@@ -9,21 +9,22 @@ function normalizeBaseUrl(value) {
 }
 
 export const API_BASE_URL = normalizeBaseUrl(
-  process.env.REACT_APP_API_BASE_URL
+  process.env.REACT_APP_API_BASE_URL ||
+    process.env.REACT_APP_API_URL ||
+    'https://raftop-enterprise-backend.onrender.com'
 );
 
 export function buildApiUrl(path) {
-  const normalizedPath = String(path || '').startsWith('/')
-    ? String(path)
-    : `/${String(path || '')}`;
+  const rawPath = String(path || '').trim();
 
-  if (/^https?:\/\//i.test(normalizedPath)) {
-    return normalizedPath;
+  if (!rawPath) {
+    return API_BASE_URL;
   }
 
-  if (!API_BASE_URL) {
-    return normalizedPath;
+  if (/^https?:\/\//i.test(rawPath)) {
+    return rawPath;
   }
 
+  const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   return `${API_BASE_URL}${normalizedPath}`;
 }
