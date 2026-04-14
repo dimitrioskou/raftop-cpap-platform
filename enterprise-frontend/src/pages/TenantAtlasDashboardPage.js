@@ -1,241 +1,433 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import ApiStatusNotice from '../components/ApiStatusNotice';
-import PageStateCard from '../components/PageStateCard';
-import { buildApiNotice, fetchJson, formatDateTime } from '../utils/tenantDataHelpers';
-import { buttonStyle, quickActionCardStyle } from '../utils/uiStyles';
+import React, { useCallback, useEffect, useState } from 'react';
+import TenantLayout from '../layouts/TenantLayout';
 
-const FALLBACK_DASHBOARD = {
-  patientsCount: 4,
-  patients_count: 4,
-  doctorsCount: 4,
-  doctors_count: 4,
-  devicesCount: 4,
-  devices_count: 4,
-  seatsCount: 4,
-  seats_count: 4,
-  modulesCount: 12,
-  modules_count: 12,
-  featuresCount: 29,
-  features_count: 29,
-  criticalFollowups: 3,
-  critical_followups: 3,
-  warningFollowups: 2,
-  warning_followups: 2,
-  pendingTasks: 5,
-  pending_tasks: 5,
-  offlineDevices: 1,
-  offline_devices: 1,
-  updated_at: '2026-04-05T13:00:00Z'
-};
+const API_BASE = (
+  process.env.REACT_APP_API_URL || 'https://raftop-enterprise-backend.onrender.com'
+).replace(/\/+$/, '');
 
-function cardStyle() {
+const TOKEN_KEY = 'raftop_auth_token';
+
+function readStoredToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function buildHeaders() {
+  const token = readStoredToken();
+
   return {
-    background: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 16,
-    padding: 16,
-    boxShadow: '0 1px 2px rgba(16,24,40,0.04)'
+    Accept: 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
 }
 
-function normalizeDashboard(payload) {
-  const source = payload || {};
+async function readJsonSafely(response) {
+  const text = await response.text();
+
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return {
+      ok: false,
+      message: text
+    };
+  }
+}
+
+async function fetchJson(path, { signal } = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'GET',
+    headers: buildHeaders(),
+    credentials: 'include',
+    signal
+  });
+
+  const payload = await readJsonSafely(response);
+
+  if (!response.ok) {
+    throw new Error(payload?.message || `Request failed: ${response.status}`);
+  }
+
+  return payload;
+}
+
+function toNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      return value.length;
+    }
+
+    const parsed = toNumber(value);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+function normalizeAtlasSummary(summaryPayload, dashboardPayload) {
+  const source =
+    summaryPayload?.summary ||
+    summaryPayload?.atlas ||
+    summaryPayload?.data ||
+    summaryPayload ||
+    {};
+
+  const dashboard =
+    dashboardPayload?.dashboard ||
+    dashboardPayload?.data ||
+    dashboardPayload ||
+    {};
 
   return {
-    patientsCount: Number(source.patientsCount ?? source.patients_count ?? 0) || 0,
-    doctorsCount: Number(source.doctorsCount ?? source.doctors_count ?? 0) || 0,
-    devicesCount: Number(source.devicesCount ?? source.devices_count ?? 0) || 0,
-    seatsCount: Number(source.seatsCount ?? source.seats_count ?? 0) || 0,
-    modulesCount: Number(source.modulesCount ?? source.modules_count ?? 0) || 0,
-    featuresCount: Number(source.featuresCount ?? source.features_count ?? 0) || 0,
-    criticalFollowups: Number(source.criticalFollowups ?? source.critical_followups ?? 0) || 0,
-    warningFollowups: Number(source.warningFollowups ?? source.warning_followups ?? 0) || 0,
-    pendingTasks: Number(source.pendingTasks ?? source.pending_tasks ?? 0) || 0,
-    offlineDevices: Number(source.offlineDevices ?? source.offline_devices ?? 0) || 0,
-    updatedAt:
-      source.updated_at ||
-      source.updatedAt ||
-      source.timestamp ||
-      null
+    openCases: firstNumber(
+      source?.openCases,
+      source?.open_cases,
+      source?.queue,
+      source?.caseCount,
+      source?.counts?.openCases
+    ),
+    alerts: firstNumber(
+      source?.alerts,
+      source?.alertCount,
+      source?.counts?.alerts
+    ),
+    tasks: firstNumber(
+      source?.tasks,
+      source?.taskCount,
+      source?.counts?.tasks
+    ),
+    autoActions: firstNumber(
+      source?.autoActions,
+      source?.auto_actions,
+      source?.counts?.autoActions
+    ),
+    criticalFollowups: firstNumber(
+      source?.criticalFollowups,
+      source?.critical_followups,
+      dashboard?.criticalFollowups,
+      dashboard?.critical_followups,
+      dashboard?.criticalCount
+    ),
+    warningFollowups: firstNumber(
+      source?.warningFollowups,
+      source?.warning_followups,
+      dashboard?.warningFollowups,
+      dashboard?.warning_followups,
+      dashboard?.warningCount
+    ),
+    lastSync: firstText(
+      source?.lastSync,
+      source?.last_sync,
+      summaryPayload?.lastSync,
+      dashboard?.lastSync,
+      dashboard?.last_sync
+    ),
+    message: firstText(
+      summaryPayload?.message,
+      dashboardPayload?.message
+    )
   };
 }
 
-export default function TenantDashboardPage() {
-  const [dashboard, setDashboard] = useState(normalizeDashboard(FALLBACK_DASHBOARD));
+function cardStyle(tone = 'blue') {
+  const tones = {
+    blue: {
+      border: '1px solid #bfdbfe',
+      background: '#eff6ff'
+    },
+    purple: {
+      border: '1px solid #ddd6fe',
+      background: '#f5f3ff'
+    },
+    green: {
+      border: '1px solid #bbf7d0',
+      background: '#f0fdf4'
+    },
+    orange: {
+      border: '1px solid #fed7aa',
+      background: '#fff7ed'
+    },
+    red: {
+      border: '1px solid #fecaca',
+      background: '#fef2f2'
+    },
+    dark: {
+      border: '1px solid #0f172a',
+      background: '#0f172a',
+      color: '#fff'
+    }
+  };
+
+  return {
+    borderRadius: 18,
+    padding: 18,
+    minHeight: 92,
+    boxSizing: 'border-box',
+    ...tones[tone]
+  };
+}
+
+export default function TenantAtlasDashboardPage() {
   const [loading, setLoading] = useState(true);
-  const [apiError, setApiError] = useState('');
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [summary, setSummary] = useState(() =>
+    normalizeAtlasSummary({}, {})
+  );
 
-  const loadDashboard = useCallback(async (signal) => {
-    setLoading(true);
-    setApiError('');
-    setUsingFallback(false);
+  const loadSummary = useCallback(async ({ signal, silent = false } = {}) => {
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    setError('');
 
     try {
-      const payload = await fetchJson('/api/tenant/dashboard', { signal });
-      const normalized = normalizeDashboard(payload);
+      const [summaryPayload, dashboardPayload] = await Promise.all([
+        fetchJson('/api/tenant/atlas/summary', { signal }).catch(() => ({})),
+        fetchJson('/api/tenant/dashboard', { signal }).catch(() => ({}))
+      ]);
 
-      const hasUsableData =
-        normalized.patientsCount > 0 ||
-        normalized.doctorsCount > 0 ||
-        normalized.devicesCount > 0 ||
-        normalized.modulesCount > 0 ||
-        normalized.featuresCount > 0 ||
-        normalized.criticalFollowups > 0 ||
-        normalized.pendingTasks > 0 ||
-        normalized.offlineDevices > 0;
-
-      if (!hasUsableData) {
-        setDashboard(normalizeDashboard(FALLBACK_DASHBOARD));
-        setUsingFallback(true);
-        setApiError('Dashboard API returned no usable metrics. Showing fallback dashboard data.');
-      } else {
-        setDashboard(normalized);
-      }
-    } catch (error) {
-      if (error?.name === 'AbortError') return;
-
-      setDashboard(normalizeDashboard(FALLBACK_DASHBOARD));
-      setUsingFallback(true);
-      setApiError(error.message || 'Failed to load dashboard. Showing fallback dashboard data.');
+      setSummary(normalizeAtlasSummary(summaryPayload, dashboardPayload));
+    } catch (err) {
+      setError(err?.message || 'Failed to load ATLAS dashboard');
     } finally {
-      if (!signal?.aborted) {
-        setLoading(false);
-      }
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    loadDashboard(controller.signal);
+    loadSummary({ signal: controller.signal });
+
     return () => controller.abort();
-  }, [loadDashboard]);
-
-  const apiNotice = useMemo(() => {
-    return buildApiNotice({
-      apiError,
-      usingFallback,
-      entityLabel: 'dashboard metrics'
-    });
-  }, [apiError, usingFallback]);
-
-  if (loading) {
-    return (
-      <div style={{ padding: 20 }}>
-        <PageStateCard
-          title="Loading dashboard"
-          message="Fetching tenant dashboard metrics from the active backend endpoints."
-        />
-      </div>
-    );
-  }
+  }, [loadSummary]);
 
   return (
-    <div style={{ padding: 20 }}>
+    <TenantLayout title="ATLAS Dashboard">
       <div
         style={{
-          display: 'flex',
-          gap: 12,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 20
+          display: 'grid',
+          gap: 18
         }}
       >
-        <div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>Dashboard</h1>
-          <div style={{ color: '#667085', marginTop: 6 }}>
-            Production-safe tenant overview.
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            const controller = new AbortController();
-            loadDashboard(controller.signal);
+        <div
+          style={{
+            borderRadius: 24,
+            padding: 22,
+            color: '#fff',
+            background:
+              'linear-gradient(135deg, #0f172a 0%, #0b1f5f 45%, #14532d 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16
           }}
-          style={buttonStyle('primary')}
         >
-          Refresh
-        </button>
-      </div>
-
-      {apiNotice ? (
-        <ApiStatusNotice
-          status={apiNotice.status}
-          title={apiNotice.title}
-          message={apiNotice.message}
-          compact
-          style={{ marginBottom: 16 }}
-        />
-      ) : null}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 12,
-          marginBottom: 16
-        }}
-      >
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Patients</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.patientsCount}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Doctors</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.doctorsCount}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Devices</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.devicesCount}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Modules</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.modulesCount}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Features</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.featuresCount}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Critical Follow-ups</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.criticalFollowups}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Warning Follow-ups</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.warningFollowups}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Pending Tasks</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.pendingTasks}</div></div>
-        <div style={cardStyle()}><div style={{ color: '#667085', fontSize: 13 }}>Offline Devices</div><div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>{dashboard.offlineDevices}</div></div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: 12,
-          marginBottom: 16
-        }}
-      >
-        <Link to="/tenant/followup" style={quickActionCardStyle('red')}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Follow-up Center</div>
-          <div style={{ color: '#667085', fontSize: 14 }}>
-            Open critical and warning patient follow-up workflow.
+          <div>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 900,
+                letterSpacing: 0.6,
+                color: '#86efac',
+                marginBottom: 6
+              }}
+            >
+              ATLAS SYSTEM
+            </div>
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 900,
+                marginBottom: 6
+              }}
+            >
+              ATLAS Dashboard
+            </div>
+            <div style={{ color: '#dcfce7' }}>
+              Prioritization, alerts and operational summary for live follow-up workflows.
+            </div>
           </div>
-        </Link>
 
-        <Link to="/tenant/compliance" style={quickActionCardStyle('orange')}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Compliance</div>
-          <div style={{ color: '#667085', fontSize: 14 }}>
-            Review below-threshold usage and adherence metrics.
-          </div>
-        </Link>
-
-        <Link to="/tenant/devices" style={quickActionCardStyle('blue')}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Devices</div>
-          <div style={{ color: '#667085', fontSize: 14 }}>
-            Check device status, connectivity, and profiles.
-          </div>
-        </Link>
-
-        <Link to="/tenant/atlas/summary" style={quickActionCardStyle('green')}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>ATLAS Summary</div>
-          <div style={{ color: '#667085', fontSize: 14 }}>
-            Open advanced prioritization and action-group overview.
-          </div>
-        </Link>
-      </div>
-
-      <div style={cardStyle()}>
-        <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 10 }}>
-          Last Dashboard Sync
+          <button
+            type="button"
+            onClick={() => loadSummary({ silent: true })}
+            disabled={refreshing}
+            style={{
+              border: '1px solid rgba(255,255,255,0.25)',
+              background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+              color: '#fff',
+              borderRadius: 16,
+              padding: '12px 18px',
+              fontWeight: 800,
+              cursor: refreshing ? 'not-allowed' : 'pointer',
+              opacity: refreshing ? 0.7 : 1,
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
-        <div style={{ color: '#667085', lineHeight: 1.5 }}>
-          {formatDateTime(dashboard.updatedAt)}
-        </div>
+
+        {summary?.message ? (
+          <div
+            style={{
+              borderRadius: 18,
+              padding: '16px 18px',
+              border: '1px solid #fde68a',
+              background: '#fffbeb',
+              color: '#92400e',
+              fontWeight: 700
+            }}
+          >
+            {summary.message}
+          </div>
+        ) : null}
+
+        {error ? (
+          <div
+            style={{
+              borderRadius: 18,
+              padding: '16px 18px',
+              border: '1px solid #fca5a5',
+              background: '#fef2f2',
+              color: '#b42318',
+              fontWeight: 700
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div
+            style={{
+              border: '1px solid #e5e7eb',
+              background: '#fff',
+              borderRadius: 24,
+              padding: 24,
+              fontWeight: 800,
+              color: '#101828'
+            }}
+          >
+            Loading ATLAS dashboard...
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 14
+              }}
+            >
+              <div style={cardStyle('dark')}>
+                <div style={{ color: 'rgba(255,255,255,0.8)', fontWeight: 700, marginBottom: 8 }}>
+                  Open Cases
+                </div>
+                <div style={{ fontSize: 42, fontWeight: 900 }}>
+                  {summary.openCases}
+                </div>
+              </div>
+
+              <div style={cardStyle('red')}>
+                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
+                  Critical Follow-ups
+                </div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: '#dc2626' }}>
+                  {summary.criticalFollowups}
+                </div>
+              </div>
+
+              <div style={cardStyle('orange')}>
+                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
+                  Warning Follow-ups
+                </div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: '#c2410c' }}>
+                  {summary.warningFollowups}
+                </div>
+              </div>
+
+              <div style={cardStyle('purple')}>
+                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
+                  Alerts
+                </div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: '#7c3aed' }}>
+                  {summary.alerts}
+                </div>
+              </div>
+
+              <div style={cardStyle('blue')}>
+                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
+                  Tasks
+                </div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: '#1d4ed8' }}>
+                  {summary.tasks}
+                </div>
+              </div>
+
+              <div style={cardStyle('green')}>
+                <div style={{ color: '#475467', fontWeight: 700, marginBottom: 8 }}>
+                  Auto Actions
+                </div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: '#15803d' }}>
+                  {summary.autoActions}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: '1px solid #e5e7eb',
+                background: '#fff',
+                borderRadius: 24,
+                padding: 22
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 900,
+                  color: '#101828',
+                  marginBottom: 12
+                }}
+              >
+                ATLAS Last Sync
+              </div>
+              <div style={{ color: '#475467', fontWeight: 700 }}>
+                {summary.lastSync || 'No ATLAS sync timestamp available yet.'}
+              </div>
+            </div>
+          </>
+        )}
       </div>
-    </div>
+    </TenantLayout>
   );
 }
