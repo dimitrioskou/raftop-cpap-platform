@@ -1,408 +1,309 @@
 const express = require('express');
-const path = require('path');
-
-try {
-  require('dotenv').config({
-    path: path.resolve(__dirname, '../../../.env')
-  });
-} catch (_error) {
-  // ignore dotenv load failures
-}
-
 const router = express.Router();
+const db = require('../../db');
+const {
+  q,
+  querySafe,
+  tableExists,
+  getColumns,
+  firstExisting,
+  textExpr
+} = require('../../utils/routeDbHelpers');
 
-function resolveDb() {
-  const candidates = [
-    '../../db',
-    '../../config/db',
-    '../../config/database',
-    '../../database',
-    '../../lib/db',
-    '../../../db',
-    '../../../config/db'
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      const mod = require(candidate);
-
-      if (mod && typeof mod.query === 'function') {
-        return mod;
-      }
-
-      if (mod && mod.pool && typeof mod.pool.query === 'function') {
-        return mod.pool;
-      }
-
-      if (typeof mod === 'function') {
-        const maybeDb = mod();
-        if (maybeDb && typeof maybeDb.query === 'function') {
-          return maybeDb;
-        }
-      }
-    } catch (_error) {
-      // keep scanning
-    }
-  }
-
-  throw new Error('Could not resolve database client in tenant patients route.');
+function normalizeText(value) {
+  if (value === null || typeof value === 'undefined') return null;
+  const text = String(value).trim();
+  return text ? text : null;
 }
 
-const db = resolveDb();
-
-async function getColumns(tableName) {
-  const result = await db.query(
-    `
-      SELECT column_name, data_type, udt_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = $1
-      ORDER BY ordinal_position
-    `,
-    [tableName]
-  );
-
-  return result.rows;
+function normalizeNumber(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function firstExisting(columns, names) {
-  const set = new Set(columns.map((col) => col.column_name));
-  for (const name of names) {
-    if (set.has(name)) {
-      return name;
-    }
-  }
+function normalizeBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (['true', '1', 'yes', 'y', 'active', 'enabled', 'on'].includes(raw)) return true;
+  if (['false', '0', 'no', 'n', 'inactive', 'disabled', 'off'].includes(raw)) return false;
   return null;
 }
 
-function getColumnMeta(columns, names) {
-  for (const name of names) {
-    const found = columns.find((col) => col.column_name === name);
-    if (found) {
-      return found;
-    }
-  }
-  return null;
+function normalizeDateTime(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }
 
-function isIntegerLikeColumn(meta) {
-  if (!meta) {
-    return false;
-  }
+function deriveComplianceStatus(monthlyHours, monitoringActive, paymentStatus) {
+  const active = normalizeBoolean(monitoringActive);
+  const payment = String(paymentStatus || '').trim().toLowerCase();
 
-  return ['int2', 'int4', 'int8'].includes(meta.udt_name) ||
-    ['smallint', 'integer', 'bigint'].includes(meta.data_type);
+  if (active === false) return 'inactive';
+  if (payment && !['paid', 'active'].includes(payment)) return 'inactive';
+
+  const hours = Number(monthlyHours || 0);
+
+  if (!hours) return 'no_data';
+  if (hours >= 80) return 'ok';
+  if (hours >= 50) return 'warning';
+  return 'critical';
 }
 
-async function resolvePatientsTable() {
-  const result = await db.query(`
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-    ORDER BY table_name
-  `);
+function buildReadOrder(columns) {
+  const createdAtColumn = firstExisting(columns, ['updated_at', 'created_at', 'last_sync_at']);
+  const idColumn = firstExisting(columns, ['id', 'patient_id']);
 
-  const names = new Set(result.rows.map((row) => row.table_name));
-
-  for (const candidate of ['patients']) {
-    if (names.has(candidate)) {
-      return candidate;
-    }
+  if (createdAtColumn) {
+    return `p.${q(createdAtColumn)} DESC NULLS LAST`;
   }
 
-  throw new Error('Patients table not found.');
+  if (idColumn) {
+    return `p.${q(idColumn)} DESC`;
+  }
+
+  return '1 DESC';
 }
 
-function extractActor(req) {
-  const user = req.user || {};
+async function readPatients() {
+  const exists = await tableExists(db, 'patients');
 
-  return {
-    userId: user.id || user.userId || user.user_id || null,
-    tenantId:
-      user.tenantId ||
-      user.tenant_id ||
-      user.organizationId ||
-      user.organization_id ||
-      null,
-    role: String(user.role || user.userRole || user.user_role || 'guest').toLowerCase()
-  };
-}
-
-function buildTenantFilter(columns, actor, startingParamIndex = 1) {
-  const tenantKey = firstExisting(columns, ['tenant_id', 'organization_id']);
-  const tenantValue = actor.tenantId || null;
-
-  if (!tenantKey || !tenantValue) {
+  if (!exists) {
     return {
-      clause: '',
-      params: []
+      patients: [],
+      totalPatients: 0,
+      debug: 'patients_table_missing'
+    };
+  }
+
+  const columns = await getColumns(db, 'patients');
+
+  const idColumn = firstExisting(columns, ['id', 'patient_id']);
+  const nameColumn = firstExisting(columns, ['full_name', 'name', 'fullname']);
+  const phoneColumn = firstExisting(columns, ['phone', 'mobile', 'mobile_phone', 'phone_number']);
+  const emailColumn = firstExisting(columns, ['email']);
+  const doctorNameColumn = firstExisting(columns, ['doctor_name']);
+  const doctorIdColumn = firstExisting(columns, ['doctor_id']);
+  const patientCodeColumn = firstExisting(columns, ['patient_code', 'code', 'external_id']);
+  const deviceSerialColumn = firstExisting(columns, ['device_serial', 'serial_number', 'cpap_serial']);
+  const deviceBrandColumn = firstExisting(columns, ['device_brand', 'brand']);
+  const therapyStartColumn = firstExisting(columns, ['therapy_start_date', 'start_date']);
+  const monthlyHoursColumn = firstExisting(columns, [
+    'monthly_usage_hours',
+    'cpap_hours',
+    'usage_hours',
+    'compliance_hours'
+  ]);
+  const ahiColumn = firstExisting(columns, ['ahi', 'avg_ahi', 'average_ahi']);
+  const lastSyncColumn = firstExisting(columns, ['last_sync_at', 'last_sync', 'updated_at']);
+  const packageTypeColumn = firstExisting(columns, ['package_type', 'package_plan', 'monitoring_package']);
+  const paymentStatusColumn = firstExisting(columns, ['payment_status']);
+  const packageStartColumn = firstExisting(columns, ['package_start_date']);
+  const packageEndColumn = firstExisting(columns, ['package_end_date']);
+  const monitoringActiveColumn = firstExisting(columns, ['monitoring_active', 'monitoring_enabled']);
+  const notificationsActiveColumn = firstExisting(columns, ['notifications_active']);
+  const followupActiveColumn = firstExisting(columns, ['followup_active']);
+  const consentColumn = firstExisting(columns, ['consent_contact', 'contact_consent']);
+  const complianceStatusColumn = firstExisting(columns, ['compliance_status', 'status']);
+
+  const sql = `
+    SELECT
+      ${textExpr('p', idColumn, 'id')},
+      ${textExpr('p', nameColumn, 'patient_name')},
+      ${textExpr('p', phoneColumn, 'phone')},
+      ${textExpr('p', emailColumn, 'email')},
+      ${textExpr('p', doctorNameColumn, 'doctor_name')},
+      ${textExpr('p', doctorIdColumn, 'doctor_id')},
+      ${textExpr('p', patientCodeColumn, 'patient_code')},
+      ${textExpr('p', deviceSerialColumn, 'device_serial')},
+      ${textExpr('p', deviceBrandColumn, 'device_brand')},
+      ${textExpr('p', therapyStartColumn, 'therapy_start_date')},
+      ${textExpr('p', monthlyHoursColumn, 'monthly_usage_hours')},
+      ${textExpr('p', ahiColumn, 'ahi')},
+      ${textExpr('p', lastSyncColumn, 'last_sync_at')},
+      ${textExpr('p', packageTypeColumn, 'package_type')},
+      ${textExpr('p', paymentStatusColumn, 'payment_status')},
+      ${textExpr('p', packageStartColumn, 'package_start_date')},
+      ${textExpr('p', packageEndColumn, 'package_end_date')},
+      ${textExpr('p', monitoringActiveColumn, 'monitoring_active')},
+      ${textExpr('p', notificationsActiveColumn, 'notifications_active')},
+      ${textExpr('p', followupActiveColumn, 'followup_active')},
+      ${textExpr('p', consentColumn, 'consent_contact')},
+      ${textExpr('p', complianceStatusColumn, 'compliance_status')}
+    FROM patients p
+    ORDER BY ${buildReadOrder(columns)}
+    LIMIT 500
+  `;
+
+  const result = await querySafe(db, sql);
+
+  if (result.error) {
+    return {
+      patients: [],
+      totalPatients: 0,
+      debug: result.error.message
     };
   }
 
   return {
-    clause: ` WHERE "${tenantKey}" = $${startingParamIndex} `,
-    params: [tenantValue]
+    patients: result.rows || [],
+    totalPatients: result.rows?.length || 0,
+    debug: null
   };
 }
 
-function normalizePatient(row, columns) {
-  if (!row) {
-    return null;
-  }
-
-  const col = (names) => firstExisting(columns, names);
-
-  const idKey = col(['id', 'patient_id']);
-  const tenantKey = col(['tenant_id', 'organization_id']);
-  const doctorKey = col(['doctor_id', 'doctor_user_id']);
-  const firstNameKey = col(['first_name']);
-  const lastNameKey = col(['last_name']);
-  const fullNameKey = col(['full_name', 'name']);
-  const emailKey = col(['email']);
-  const phoneKey = col(['phone', 'mobile']);
-  const statusKey = col(['status']);
-  const createdAtKey = col(['created_at']);
-  const updatedAtKey = col(['updated_at']);
-
-  const id = idKey ? row[idKey] : null;
-  const fullName =
-    (fullNameKey ? row[fullNameKey] : null) ||
-    [firstNameKey ? row[firstNameKey] : null, lastNameKey ? row[lastNameKey] : null]
-      .filter(Boolean)
-      .join(' ') ||
-    null;
-
-  return {
-    id,
-    patientId: id,
-    publicId: id !== null && typeof id !== 'undefined' ? `PATIENT-${id}` : null,
-    tenantId: tenantKey ? row[tenantKey] : null,
-    doctorId: doctorKey ? row[doctorKey] : null,
-    firstName: firstNameKey ? row[firstNameKey] : null,
-    lastName: lastNameKey ? row[lastNameKey] : null,
-    fullName,
-    name: fullName,
-    email: emailKey ? row[emailKey] : null,
-    phone: phoneKey ? row[phoneKey] : null,
-    status: statusKey ? row[statusKey] : null,
-    createdAt: createdAtKey ? row[createdAtKey] : null,
-    updatedAt: updatedAtKey ? row[updatedAtKey] : null,
-    raw: row
-  };
+function pushIfColumnExists(payload, columns, candidates, value) {
+  const column = firstExisting(columns, candidates);
+  if (!column) return null;
+  if (typeof value === 'undefined') return null;
+  payload.push({ column, value });
+  return column;
 }
 
-async function listTenantPatients(actor) {
-  const tableName = await resolvePatientsTable();
-  const columns = await getColumns(tableName);
+router.get('/', async (_req, res) => {
+  const data = await readPatients();
 
-  const tenantFilter = buildTenantFilter(columns, actor);
-  const orderKey =
-    firstExisting(columns, ['updated_at', 'created_at', 'id', 'patient_id']) || 'id';
-
-  const result = await db.query(
-    `
-      SELECT *
-      FROM "${tableName}"
-      ${tenantFilter.clause}
-      ORDER BY "${orderKey}" DESC NULLS LAST
-      LIMIT 500
-    `,
-    tenantFilter.params
-  );
-
-  return {
-    tableName,
-    columns,
-    rows: result.rows || []
-  };
-}
-
-async function findPatientByLookup(actor, lookupValue) {
-  const tableName = await resolvePatientsTable();
-  const columns = await getColumns(tableName);
-
-  const idKey = firstExisting(columns, ['id', 'patient_id']);
-  const idMeta = getColumnMeta(columns, ['id', 'patient_id']);
-  const emailKey = firstExisting(columns, ['email']);
-  const fullNameKey = firstExisting(columns, ['full_name', 'name']);
-  const tenantKey = firstExisting(columns, ['tenant_id', 'organization_id']);
-
-  const params = [];
-  const tenantParts = [];
-
-  if (tenantKey && actor.tenantId) {
-    params.push(actor.tenantId);
-    tenantParts.push(`"${tenantKey}" = $${params.length}`);
-  }
-
-  const lookup = String(lookupValue || '').trim();
-  const searchParts = [];
-
-  if (idKey) {
-    if (isIntegerLikeColumn(idMeta)) {
-      if (Number.isInteger(Number(lookup))) {
-        params.push(Number(lookup));
-        searchParts.push(`"${idKey}" = $${params.length}`);
-      }
-    } else {
-      params.push(lookup);
-      searchParts.push(`"${idKey}" = $${params.length}`);
-    }
-  }
-
-  if (emailKey) {
-    params.push(lookup);
-    searchParts.push(`"${emailKey}" = $${params.length}`);
-  }
-
-  if (fullNameKey) {
-    params.push(lookup);
-    searchParts.push(`"${fullNameKey}" = $${params.length}`);
-  }
-
-  if (!searchParts.length) {
-    return {
-      tableName,
-      columns,
-      row: null
-    };
-  }
-
-  const result = await db.query(
-    `
-      SELECT *
-      FROM "${tableName}"
-      WHERE
-        ${tenantParts.length ? `${tenantParts.join(' AND ')} AND ` : ''}
-        (${searchParts.join(' OR ')})
-      LIMIT 1
-    `,
-    params
-  );
-
-  return {
-    tableName,
-    columns,
-    row: result.rows[0] || null
-  };
-}
-
-function getPlaceholderPatientIndex(value) {
-  const normalized = String(value || '').trim().toUpperCase();
-
-  let match = normalized.match(/^PATIENT[-_](\d+)$/);
-  if (match) {
-    const index = Number(match[1]);
-    return Number.isInteger(index) && index > 0 ? index : null;
-  }
-
-  match = normalized.match(/^(\d+)$/);
-  if (match) {
-    const index = Number(match[1]);
-    return Number.isInteger(index) && index > 0 ? index : null;
-  }
-
-  return null;
-}
-
-function pickPlaceholderMappedRow(rows, placeholderIndex) {
-  if (!Array.isArray(rows) || !rows.length) {
-    return null;
-  }
-
-  if (!placeholderIndex) {
-    return rows[0];
-  }
-
-  const zeroBased = placeholderIndex - 1;
-
-  if (rows[zeroBased]) {
-    return rows[zeroBased];
-  }
-
-  return rows[0];
-}
-
-router.get('/', async (req, res) => {
-  try {
-    const actor = extractActor(req);
-    const listed = await listTenantPatients(actor);
-
-    const patients = listed.rows.map((row, index) => {
-      const normalized = normalizePatient(row, listed.columns);
-
-      return {
-        ...normalized,
-        placeholderId: `PATIENT-${index + 1}`
-      };
-    });
-
-    return res.status(200).json({
-      ok: true,
-      patients,
-      total: patients.length,
-      meta: {
-        table: listed.tableName,
-        tenantId: actor.tenantId || null
-      }
-    });
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      message: error.message || 'Failed to load patients.'
-    });
-  }
+  return res.json({
+    ok: true,
+    patients: data.patients,
+    totalPatients: data.totalPatients,
+    timestamp: new Date().toISOString(),
+    debug: data.debug || null
+  });
 });
 
-router.get('/:patientId', async (req, res) => {
-  try {
-    const actor = extractActor(req);
-    const requestedId = String(req.params.patientId || '').trim();
+router.post('/', async (req, res) => {
+  const exists = await tableExists(db, 'patients');
 
-    let found = await findPatientByLookup(actor, requestedId);
-    let fallbackMatched = false;
-
-    const placeholderIndex = getPlaceholderPatientIndex(requestedId);
-
-    if (!found.row && placeholderIndex !== null) {
-      const listed = await listTenantPatients(actor);
-      const matchedRow = pickPlaceholderMappedRow(listed.rows, placeholderIndex);
-
-      found = {
-        tableName: listed.tableName,
-        columns: listed.columns,
-        row: matchedRow
-      };
-
-      fallbackMatched = Boolean(matchedRow);
-    }
-
-    if (!found.row) {
-      return res.status(404).json({
-        ok: false,
-        message: 'Patient not found'
-      });
-    }
-
-    return res.status(200).json({
-      ok: true,
-      patient: {
-        ...normalizePatient(found.row, found.columns),
-        placeholderId:
-          placeholderIndex !== null ? `PATIENT-${placeholderIndex}` : null
-      },
-      meta: {
-        requestedId,
-        table: found.tableName,
-        fallbackMatched
-      }
-    });
-  } catch (error) {
+  if (!exists) {
     return res.status(500).json({
       ok: false,
-      message: error.message || 'Failed to load patient.'
+      message: 'Patients table is missing.'
     });
   }
+
+  const columns = await getColumns(db, 'patients');
+
+  const fullName = normalizeText(req.body?.full_name || req.body?.patient_name || req.body?.name);
+  const phone = normalizeText(req.body?.phone || req.body?.mobile);
+  const email = normalizeText(req.body?.email);
+  const doctorName = normalizeText(req.body?.doctor_name);
+  const doctorId = normalizeText(req.body?.doctor_id);
+  const patientCode = normalizeText(req.body?.patient_code);
+  const deviceSerial = normalizeText(req.body?.device_serial);
+  const deviceBrand = normalizeText(req.body?.device_brand);
+  const therapyStartDate = normalizeDateTime(req.body?.therapy_start_date);
+  const monthlyUsageHours = normalizeNumber(req.body?.monthly_usage_hours);
+  const ahi = normalizeNumber(req.body?.ahi);
+  const lastSyncAt = normalizeDateTime(req.body?.last_sync_at);
+  const packageType = normalizeText(req.body?.package_type);
+  const paymentStatus = normalizeText(req.body?.payment_status || 'pending');
+  const packageStartDate = normalizeDateTime(req.body?.package_start_date);
+  const packageEndDate = normalizeDateTime(req.body?.package_end_date);
+  const monitoringActive = normalizeBoolean(req.body?.monitoring_active);
+  const notificationsActive = normalizeBoolean(req.body?.notifications_active);
+  const followupActive = normalizeBoolean(req.body?.followup_active);
+  const consentContact = normalizeBoolean(req.body?.consent_contact);
+
+  if (!fullName) {
+    return res.status(400).json({
+      ok: false,
+      message: 'Patient full name is required.'
+    });
+  }
+
+  const complianceStatus = deriveComplianceStatus(
+    monthlyUsageHours,
+    monitoringActive,
+    paymentStatus
+  );
+
+  const insertPairs = [];
+
+  pushIfColumnExists(insertPairs, columns, ['full_name', 'name', 'fullname'], fullName);
+  pushIfColumnExists(insertPairs, columns, ['phone', 'mobile', 'mobile_phone', 'phone_number'], phone);
+  pushIfColumnExists(insertPairs, columns, ['email'], email);
+  pushIfColumnExists(insertPairs, columns, ['doctor_name'], doctorName);
+  pushIfColumnExists(insertPairs, columns, ['doctor_id'], doctorId);
+  pushIfColumnExists(insertPairs, columns, ['patient_code', 'code', 'external_id'], patientCode);
+  pushIfColumnExists(insertPairs, columns, ['device_serial', 'serial_number', 'cpap_serial'], deviceSerial);
+  pushIfColumnExists(insertPairs, columns, ['device_brand', 'brand'], deviceBrand);
+  pushIfColumnExists(insertPairs, columns, ['therapy_start_date', 'start_date'], therapyStartDate);
+  pushIfColumnExists(insertPairs, columns, ['monthly_usage_hours', 'cpap_hours', 'usage_hours', 'compliance_hours'], monthlyUsageHours);
+  pushIfColumnExists(insertPairs, columns, ['ahi', 'avg_ahi', 'average_ahi'], ahi);
+  pushIfColumnExists(insertPairs, columns, ['last_sync_at', 'last_sync'], lastSyncAt);
+  pushIfColumnExists(insertPairs, columns, ['package_type', 'package_plan', 'monitoring_package'], packageType);
+  pushIfColumnExists(insertPairs, columns, ['payment_status'], paymentStatus);
+  pushIfColumnExists(insertPairs, columns, ['package_start_date'], packageStartDate);
+  pushIfColumnExists(insertPairs, columns, ['package_end_date'], packageEndDate);
+  pushIfColumnExists(insertPairs, columns, ['monitoring_active', 'monitoring_enabled'], monitoringActive);
+  pushIfColumnExists(insertPairs, columns, ['notifications_active'], notificationsActive);
+  pushIfColumnExists(insertPairs, columns, ['followup_active'], followupActive);
+  pushIfColumnExists(insertPairs, columns, ['consent_contact', 'contact_consent'], consentContact);
+  pushIfColumnExists(insertPairs, columns, ['compliance_status', 'status'], complianceStatus);
+  pushIfColumnExists(insertPairs, columns, ['created_at'], new Date().toISOString());
+  pushIfColumnExists(insertPairs, columns, ['updated_at'], new Date().toISOString());
+  pushIfColumnExists(insertPairs, columns, ['tenant_id'], normalizeText(req.body?.tenant_id || 'demo-tenant'));
+
+  if (!insertPairs.length) {
+    return res.status(500).json({
+      ok: false,
+      message: 'No compatible patient columns were found for insert.'
+    });
+  }
+
+  const insertColumns = insertPairs.map((entry) => q(entry.column)).join(', ');
+  const placeholders = insertPairs.map((_, index) => `$${index + 1}`).join(', ');
+  const values = insertPairs.map((entry) => entry.value);
+
+  const returningIdColumn = firstExisting(columns, ['id', 'patient_id']);
+
+  const sql = `
+    INSERT INTO patients (${insertColumns})
+    VALUES (${placeholders})
+    ${returningIdColumn ? `RETURNING ${q(returningIdColumn)}::text AS id` : ''}
+  `;
+
+  const result = await querySafe(db, sql, values);
+
+  if (result.error) {
+    return res.status(500).json({
+      ok: false,
+      message: result.error.message || 'Failed to create patient.'
+    });
+  }
+
+  return res.status(201).json({
+    ok: true,
+    message: 'Patient created successfully.',
+    patient: {
+      id: result.rows?.[0]?.id || null,
+      patient_name: fullName,
+      phone,
+      email,
+      doctor_name: doctorName,
+      doctor_id: doctorId,
+      patient_code: patientCode,
+      device_serial: deviceSerial,
+      device_brand: deviceBrand,
+      therapy_start_date: therapyStartDate,
+      monthly_usage_hours: monthlyUsageHours,
+      ahi,
+      last_sync_at: lastSyncAt,
+      package_type: packageType,
+      payment_status: paymentStatus,
+      package_start_date: packageStartDate,
+      package_end_date: packageEndDate,
+      monitoring_active: monitoringActive,
+      notifications_active: notificationsActive,
+      followup_active: followupActive,
+      consent_contact: consentContact,
+      compliance_status: complianceStatus
+    }
+  });
 });
 
 module.exports = router;
