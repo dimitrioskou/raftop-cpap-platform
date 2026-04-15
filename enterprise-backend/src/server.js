@@ -10,6 +10,7 @@ const superAdminOrganizationsRoutes = require('./routes/superAdmin/organizations
 const superAdminLicensesRoutes = require('./routes/superAdmin/licenses');
 const superAdminPlansRoutes = require('./routes/superAdmin/plans');
 const superAdminModulesRoutes = require('./routes/superAdmin/modules');
+
 const tenantAtlasRoutes = require('./routes/tenant/atlas');
 const tenantDashboardRoutes = require('./routes/tenant/dashboard');
 const tenantPatientsRoutes = require('./routes/tenant/patients');
@@ -18,6 +19,9 @@ const tenantTasksRoutes = require('./routes/tenant/tasks');
 const tenantNotesRoutes = require('./routes/tenant/notes');
 const tenantReferralsRoutes = require('./routes/tenant/referrals');
 const tenantFollowupRoutes = require('./routes/tenant/followup');
+const tenantNotificationsRoutes = require('./routes/tenant/notifications');
+const tenantPaymentsRoutes = require('./routes/tenant/payments');
+const tenantUsersRoutes = require('./routes/tenant/users');
 
 const restoreBootstrapRoutes = require('./routes/restoreBootstrap');
 
@@ -50,6 +54,7 @@ app.use('/api/super-admin/organizations', superAdminOrganizationsRoutes);
 app.use('/api/super-admin/licenses', superAdminLicensesRoutes);
 app.use('/api/super-admin/plans', superAdminPlansRoutes);
 app.use('/api/super-admin/modules', superAdminModulesRoutes);
+
 app.use('/api/tenant/atlas', tenantAtlasRoutes);
 app.use('/api/tenant/dashboard', tenantDashboardRoutes);
 app.use('/api/tenant/patients', tenantPatientsRoutes);
@@ -58,6 +63,9 @@ app.use('/api/tenant/tasks', tenantTasksRoutes);
 app.use('/api/tenant/notes', tenantNotesRoutes);
 app.use('/api/tenant/referrals', tenantReferralsRoutes);
 app.use('/api/tenant/followup', tenantFollowupRoutes);
+app.use('/api/tenant/notifications', tenantNotificationsRoutes);
+app.use('/api/tenant/payments', tenantPaymentsRoutes);
+app.use('/api/tenant/users', tenantUsersRoutes);
 
 app.use('/api/admin', restoreBootstrapRoutes);
 
