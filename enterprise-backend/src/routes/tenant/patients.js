@@ -24,10 +24,15 @@ function normalizeNumber(value) {
 
 function normalizeBoolean(value) {
   if (typeof value === 'boolean') return value;
-  const raw = String(value || '').trim().toLowerCase();
+
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+
   if (!raw) return null;
   if (['true', '1', 'yes', 'y', 'active', 'enabled', 'on'].includes(raw)) return true;
   if (['false', '0', 'no', 'n', 'inactive', 'disabled', 'off'].includes(raw)) return false;
+
   return null;
 }
 
@@ -40,7 +45,9 @@ function normalizeDateTime(value) {
 
 function deriveComplianceStatus(monthlyHours, monitoringActive, paymentStatus) {
   const active = normalizeBoolean(monitoringActive);
-  const payment = String(paymentStatus || '').trim().toLowerCase();
+  const payment = String(paymentStatus || '')
+    .trim()
+    .toLowerCase();
 
   if (active === false) return 'inactive';
   if (payment && !['paid', 'active'].includes(payment)) return 'inactive';
@@ -57,15 +64,19 @@ function buildReadOrder(columns) {
   const createdAtColumn = firstExisting(columns, ['updated_at', 'created_at', 'last_sync_at']);
   const idColumn = firstExisting(columns, ['id', 'patient_id']);
 
-  if (createdAtColumn) {
-    return `p.${q(createdAtColumn)} DESC NULLS LAST`;
-  }
-
-  if (idColumn) {
-    return `p.${q(idColumn)} DESC`;
-  }
+  if (createdAtColumn) return `p.${q(createdAtColumn)} DESC NULLS LAST`;
+  if (idColumn) return `p.${q(idColumn)} DESC`;
 
   return '1 DESC';
+}
+
+function pushIfColumnExists(payload, columns, candidates, value) {
+  const column = firstExisting(columns, candidates);
+  if (!column) return null;
+  if (typeof value === 'undefined') return null;
+
+  payload.push({ column, value });
+  return column;
 }
 
 async function readPatients() {
@@ -155,14 +166,6 @@ async function readPatients() {
   };
 }
 
-function pushIfColumnExists(payload, columns, candidates, value) {
-  const column = firstExisting(columns, candidates);
-  if (!column) return null;
-  if (typeof value === 'undefined') return null;
-  payload.push({ column, value });
-  return column;
-}
-
 router.get('/', async (_req, res) => {
   const data = await readPatients();
 
@@ -191,7 +194,7 @@ router.post('/', async (req, res) => {
   const phone = normalizeText(req.body?.phone || req.body?.mobile);
   const email = normalizeText(req.body?.email);
   const doctorName = normalizeText(req.body?.doctor_name);
-  const doctorId = normalizeText(req.body?.doctor_id);
+  const doctorIdRaw = normalizeText(req.body?.doctor_id);
   const patientCode = normalizeText(req.body?.patient_code);
   const deviceSerial = normalizeText(req.body?.device_serial);
   const deviceBrand = normalizeText(req.body?.device_brand);
@@ -215,6 +218,29 @@ router.post('/', async (req, res) => {
     });
   }
 
+  let doctorId = null;
+
+  if (doctorIdRaw) {
+    const doctorsExists = await tableExists(db, 'doctors');
+
+    if (doctorsExists) {
+      const doctorColumns = await getColumns(db, 'doctors');
+      const doctorPkColumn = firstExisting(doctorColumns, ['id', 'doctor_id']);
+
+      if (doctorPkColumn) {
+        const doctorCheck = await querySafe(
+          db,
+          `SELECT 1 FROM doctors d WHERE d.${q(doctorPkColumn)}::text = $1 LIMIT 1`,
+          [doctorIdRaw]
+        );
+
+        if (!doctorCheck.error && doctorCheck.rows?.length) {
+          doctorId = doctorIdRaw;
+        }
+      }
+    }
+  }
+
   const complianceStatus = deriveComplianceStatus(
     monthlyUsageHours,
     monitoringActive,
@@ -232,7 +258,12 @@ router.post('/', async (req, res) => {
   pushIfColumnExists(insertPairs, columns, ['device_serial', 'serial_number', 'cpap_serial'], deviceSerial);
   pushIfColumnExists(insertPairs, columns, ['device_brand', 'brand'], deviceBrand);
   pushIfColumnExists(insertPairs, columns, ['therapy_start_date', 'start_date'], therapyStartDate);
-  pushIfColumnExists(insertPairs, columns, ['monthly_usage_hours', 'cpap_hours', 'usage_hours', 'compliance_hours'], monthlyUsageHours);
+  pushIfColumnExists(
+    insertPairs,
+    columns,
+    ['monthly_usage_hours', 'cpap_hours', 'usage_hours', 'compliance_hours'],
+    monthlyUsageHours
+  );
   pushIfColumnExists(insertPairs, columns, ['ahi', 'avg_ahi', 'average_ahi'], ahi);
   pushIfColumnExists(insertPairs, columns, ['last_sync_at', 'last_sync'], lastSyncAt);
   pushIfColumnExists(insertPairs, columns, ['package_type', 'package_plan', 'monitoring_package'], packageType);
