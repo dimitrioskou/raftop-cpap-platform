@@ -18,54 +18,6 @@ import {
   toolbarCardStyle
 } from '../utils/uiStyles';
 
-const FALLBACK_ROWS = [
-  {
-    id: 'FU-001',
-    patient_id: 'PT-001',
-    patient_name: 'Γεώργιος Παπαδόπουλος',
-    doctor_id: '2',
-    doctor_name: 'Dr. Ελένη Περράκη',
-    status: 'pending',
-    outcome: 'pending',
-    priority: 'critical',
-    channel: 'phone',
-    scheduled_at: '2026-04-15T10:30:00Z',
-    contacted_at: '',
-    assigned_to: 'RAFTOP Team',
-    notes: 'Critical low usage outreach'
-  },
-  {
-    id: 'FU-002',
-    patient_id: 'PT-002',
-    patient_name: 'Μαρία Κωνσταντίνου',
-    doctor_id: '3',
-    doctor_name: 'Dr. Νίκος Ανδρεάδης',
-    status: 'callback_requested',
-    outcome: 'callback_requested',
-    priority: 'warning',
-    channel: 'phone',
-    scheduled_at: '2026-04-14T09:00:00Z',
-    contacted_at: '2026-04-14T09:20:00Z',
-    assigned_to: 'RAFTOP Team',
-    notes: 'Patient requested callback tomorrow'
-  },
-  {
-    id: 'FU-003',
-    patient_id: 'PT-003',
-    patient_name: 'CPAP Test Patient',
-    doctor_id: '',
-    doctor_name: '',
-    status: 'resolved',
-    outcome: 'resolved',
-    priority: 'normal',
-    channel: 'sms',
-    scheduled_at: '2026-04-13T08:00:00Z',
-    contacted_at: '2026-04-13T08:30:00Z',
-    assigned_to: 'RAFTOP Team',
-    notes: 'Resolved after reminder'
-  }
-];
-
 function normalizeStatus(value) {
   const raw = String(value || '').trim().toLowerCase();
 
@@ -269,19 +221,14 @@ export default function TenantFollowupPage() {
       const normalized = extraction.rows.map(normalizeRow);
 
       setPayloadDebug(extraction.debug || '');
-
-      if (!normalized.length) {
-        setRows(FALLBACK_ROWS.map(normalizeRow));
-        setUsingFallback(true);
-        setApiError('No usable follow-up rows found. Showing fallback follow-up data.');
-      } else {
-        setRows(normalized);
-      }
+      setRows(normalized);
+      setUsingFallback(false);
+      setApiError('');
     } catch (error) {
       if (error?.name === 'AbortError') return;
 
-      setRows(FALLBACK_ROWS.map(normalizeRow));
-      setUsingFallback(true);
+      setRows([]);
+      setUsingFallback(false);
       setApiError(error?.message || 'Failed to load follow-up data.');
       setPayloadDebug('Request failed before usable follow-up data was found.');
     } finally {
@@ -515,9 +462,9 @@ export default function TenantFollowupPage() {
         ) : filteredRows.length === 0 ? (
           <PageStateCard
             title="No follow-up records found"
-            message="Try clearing filters or create a new follow-up."
-            actionLabel="Refresh"
-            onAction={handleRefresh}
+            message="Create a new follow-up to start the outreach workflow."
+            actionLabel="New Follow-up"
+            onAction={() => setShowCreateModal(true)}
           />
         ) : (
           <div style={{ overflowX: 'auto' }}>
