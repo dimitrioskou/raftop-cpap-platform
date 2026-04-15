@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import ApiStatusNotice from '../components/ApiStatusNotice';
 import MetricCard from '../components/MetricCard';
 import PageStateCard from '../components/PageStateCard';
-import { buildApiNotice, fetchJson, formatDateTime } from '../utils/tenantDataHelpers';
+import TaskCreateModal from '../components/tasks/TaskCreateModal';
+import { apiPut } from '../lib/api';
+import {
+  buildApiNotice,
+  fetchJson,
+  formatDateTime
+} from '../utils/tenantDataHelpers';
 import {
   buttonStyle,
   panelStyle,
@@ -11,24 +18,44 @@ import {
   toolbarCardStyle
 } from '../utils/uiStyles';
 
-const FALLBACK_ROWS = [
-  {
-    id: 'TASK-1',
-    title: 'Call non-compliant patient',
-    patient_name: 'Μαρία Κωνσταντίνου',
-    owner: 'Atlas Team',
-    due_at: '2026-04-05T10:00:00Z',
-    status: 'pending'
-  },
-  {
-    id: 'TASK-2',
-    title: 'Review offline device alert',
-    patient_name: 'CPAP Test Patient',
-    owner: 'Support Desk',
-    due_at: '2026-04-05T08:00:00Z',
-    status: 'overdue'
+function normalizeStatus(value) {
+  const raw = String(value || '').trim().toLowerCase();
+
+  if (['pending', 'in_progress', 'done', 'cancelled', 'escalated'].includes(raw)) {
+    return raw;
   }
-];
+
+  if (raw.includes('progress')) return 'in_progress';
+  if (raw.includes('done') || raw.includes('complete')) return 'done';
+  if (raw.includes('cancel')) return 'cancelled';
+  if (raw.includes('escal')) return 'escalated';
+
+  return 'pending';
+}
+
+function normalizePriority(value) {
+  const raw = String(value || '').trim().toLowerCase();
+
+  if (['normal', 'warning', 'critical'].includes(raw)) return raw;
+  if (raw.includes('crit')) return 'critical';
+  if (raw.includes('warn')) return 'warning';
+
+  return 'normal';
+}
+
+function getStatusKind(status) {
+  if (status === 'done') return 'success';
+  if (status === 'in_progress') return 'warning';
+  if (status === 'escalated') return 'dark';
+  if (status === 'cancelled') return 'danger';
+  return 'neutral';
+}
+
+function getPriorityKind(priority) {
+  if (priority === 'critical') return 'danger';
+  if (priority === 'warning') return 'warning';
+  return 'neutral';
+}
 
 function safeKeys(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
@@ -39,11 +66,13 @@ function describePayloadShape(value, depth = 0) {
   if (depth > 2) return '...';
 
   if (Array.isArray(value)) {
-    if (value.length === 0) return 'Array(0)';
+    if (!value.length) return 'Array(0)';
     const first = value[0];
+
     if (first && typeof first === 'object' && !Array.isArray(first)) {
-      return `Array(${value.length}) of { ${safeKeys(first).slice(0, 10).join(', ')} }`;
+      return `Array(${value.length}) of { ${safeKeys(first).slice(0, 12).join(', ')} }`;
     }
+
     return `Array(${value.length})`;
   }
 
@@ -51,24 +80,26 @@ function describePayloadShape(value, depth = 0) {
 
   return `{ ${Object.entries(value)
     .slice(0, 12)
-    .map(([k, v]) => `${k}: ${describePayloadShape(v, depth + 1)}`)
+    .map(([key, nested]) => `${key}: ${describePayloadShape(nested, depth + 1)}`)
     .join(' | ')} }`;
 }
 
 function scoreArrayCandidate(arr) {
   if (!Array.isArray(arr)) return -1;
-  if (arr.length === 0) return 0;
+  if (!arr.length) return 0;
 
   let score = 0;
+
   for (const item of arr.slice(0, 5)) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const keys = Object.keys(item).map((k) => k.toLowerCase());
 
-    if (keys.includes('title') || keys.includes('task_title') || keys.includes('tasktitle')) score += 4;
-    if (keys.includes('patient_name') || keys.includes('patientname')) score += 2;
-    if (keys.includes('owner') || keys.includes('assigned_to') || keys.includes('assignedto')) score += 2;
-    if (keys.includes('due_at') || keys.includes('dueat')) score += 2;
+    const keys = Object.keys(item).map((key) => key.toLowerCase());
+
+    if (keys.includes('title') || keys.includes('task_title') || keys.includes('name')) score += 4;
     if (keys.includes('status')) score += 3;
+    if (keys.includes('priority')) score += 3;
+    if (keys.includes('due_at')) score += 2;
+    if (keys.includes('patient_name')) score += 1;
   }
 
   return score;
@@ -99,55 +130,61 @@ function findBestArray(value, path = 'payload', visited = new Set(), results = [
 }
 
 function extractRows(payload) {
+  if (Array.isArray(payload?.tasks)) {
+    return {
+      rows: payload.tasks,
+      debug: 'Using payload.tasks'
+    };
+  }
+
   const candidates = findBestArray(payload)
     .filter((entry) => Array.isArray(entry.value))
     .sort((a, b) => b.score - a.score || b.value.length - a.value.length);
 
   const best = candidates[0];
-  if (!best) return { rows: [], debug: `No arrays found in payload. Shape: ${describePayloadShape(payload)}` };
-  if (best.value.length === 0) return { rows: [], debug: `Best array at ${best.path} is empty. Shape: ${describePayloadShape(payload)}` };
-  if (best.score <= 0) return { rows: [], debug: `Only low-confidence arrays found. Best: ${best.path}. Shape: ${describePayloadShape(payload)}` };
-  return { rows: best.value, debug: `Using ${best.path} (score ${best.score})` };
-}
 
-async function fetchFirstUsablePayload(urls, signal) {
-  const diagnostics = [];
-
-  for (const url of urls) {
-    try {
-      const payload = await fetchJson(url, { signal });
-      const extraction = extractRows(payload);
-
-      diagnostics.push(`${url} -> ${extraction.debug}`);
-
-      if (Array.isArray(extraction.rows) && extraction.rows.length > 0) {
-        return { rows: extraction.rows, debug: `Using ${url} | ${extraction.debug}` };
-      }
-    } catch (error) {
-      if (error?.name === 'AbortError') throw error;
-      diagnostics.push(`${url} -> ERROR ${error.message}`);
-    }
+  if (!best) {
+    return {
+      rows: [],
+      debug: `No arrays found in payload. Shape: ${describePayloadShape(payload)}`
+    };
   }
 
-  return { rows: [], debug: diagnostics.join(' || ') };
+  if (!best.value.length) {
+    return {
+      rows: [],
+      debug: `Best array at ${best.path} is empty. Shape: ${describePayloadShape(payload)}`
+    };
+  }
+
+  if (best.score <= 0) {
+    return {
+      rows: [],
+      debug: `Only low-confidence arrays found. Best: ${best.path}. Shape: ${describePayloadShape(payload)}`
+    };
+  }
+
+  return {
+    rows: best.value,
+    debug: `Using ${best.path} (score ${best.score})`
+  };
 }
 
 function normalizeRow(item, index) {
   return {
-    id: String(item.id || item.task_id || item.taskId || `TASK-${index + 1}`),
-    title: item.title || item.task_title || item.taskTitle || `Task ${index + 1}`,
-    patientName: item.patient_name || item.patientName || item.name || '—',
-    owner: item.owner || item.assigned_to || item.assignedTo || 'Team',
-    dueAt: item.due_at || item.dueAt || null,
-    status: item.status || 'open'
+    id: String(item.id || item.task_id || `TS-${index + 1}`),
+    title: item.title || item.task_title || item.name || `Task ${index + 1}`,
+    patientId: item.patient_id || '',
+    patientName: item.patient_name || '',
+    doctorId: item.doctor_id || '',
+    doctorName: item.doctor_name || '',
+    followupId: item.followup_id || '',
+    status: normalizeStatus(item.status || item.task_status),
+    priority: normalizePriority(item.priority || item.severity),
+    dueAt: item.due_at || item.scheduled_at || null,
+    assignedTo: item.assigned_to || item.owner || '',
+    notes: item.notes || item.comment || ''
   };
-}
-
-function getKind(value) {
-  const raw = String(value || '').toLowerCase();
-  if (raw.includes('overdue') || raw.includes('critical')) return 'danger';
-  if (raw.includes('pending') || raw.includes('open')) return 'warning';
-  return 'success';
 }
 
 export default function TenantTasksPage() {
@@ -158,6 +195,7 @@ export default function TenantTasksPage() {
   const [payloadDebug, setPayloadDebug] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const loadRows = useCallback(async (signal) => {
     setLoading(true);
@@ -166,28 +204,21 @@ export default function TenantTasksPage() {
     setPayloadDebug('');
 
     try {
-      const result = await fetchFirstUsablePayload(
-        ['/api/tenant/tasks', '/api/tasks', '/api/tenant/atlas/tasks'],
-        signal
-      );
+      const payload = await fetchJson('/api/tenant/tasks', { signal });
+      const extraction = extractRows(payload);
+      const normalized = extraction.rows.map(normalizeRow);
 
-      const normalized = (result.rows || []).map(normalizeRow);
-      setPayloadDebug(result.debug || '');
-
-      if (!normalized.length) {
-        setRows(FALLBACK_ROWS.map(normalizeRow));
-        setUsingFallback(true);
-        setApiError('No usable task rows found. Showing fallback task data.');
-      } else {
-        setRows(normalized);
-      }
+      setPayloadDebug(extraction.debug || '');
+      setRows(normalized);
+      setUsingFallback(false);
+      setApiError('');
     } catch (error) {
       if (error?.name === 'AbortError') return;
 
-      setRows(FALLBACK_ROWS.map(normalizeRow));
-      setUsingFallback(true);
-      setApiError(error.message || 'Failed to load task data.');
-      setPayloadDebug('Request failed before usable task payload was found.');
+      setRows([]);
+      setUsingFallback(false);
+      setApiError(error?.message || 'Failed to load tasks.');
+      setPayloadDebug('Request failed before usable tasks were found.');
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -196,6 +227,7 @@ export default function TenantTasksPage() {
   useEffect(() => {
     const controller = new AbortController();
     loadRows(controller.signal);
+
     return () => controller.abort();
   }, [loadRows]);
 
@@ -204,6 +236,18 @@ export default function TenantTasksPage() {
     loadRows(controller.signal);
   }, [loadRows]);
 
+  const handleTaskUpdate = useCallback(
+    async (row, patch) => {
+      try {
+        await apiPut(`/api/tenant/tasks/${encodeURIComponent(row.id)}`, patch);
+        handleRefresh();
+      } catch (error) {
+        alert(error?.message || 'Failed to update task.');
+      }
+    },
+    [handleRefresh]
+  );
+
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -211,27 +255,38 @@ export default function TenantTasksPage() {
       const matchesSearch =
         !q ||
         row.title.toLowerCase().includes(q) ||
-        row.patientName.toLowerCase().includes(q) ||
-        row.owner.toLowerCase().includes(q) ||
-        row.id.toLowerCase().includes(q);
+        String(row.patientName || '').toLowerCase().includes(q) ||
+        String(row.doctorName || '').toLowerCase().includes(q) ||
+        String(row.assignedTo || '').toLowerCase().includes(q) ||
+        String(row.id || '').toLowerCase().includes(q);
 
-      const matchesStatus = statusFilter === 'all' ? true : String(row.status).toLowerCase() === statusFilter;
+      const matchesStatus = statusFilter === 'all' ? true : row.status === statusFilter;
+
       return matchesSearch && matchesStatus;
     });
   }, [rows, search, statusFilter]);
 
-  const stats = useMemo(() => ({
-    total: rows.length,
-    pending: rows.filter((r) => String(r.status).toLowerCase() === 'pending').length,
-    overdue: rows.filter((r) => String(r.status).toLowerCase() === 'overdue').length,
-    completed: rows.filter((r) => String(r.status).toLowerCase() === 'completed').length
-  }), [rows]);
+  const stats = useMemo(
+    () => ({
+      total: rows.length,
+      pending: rows.filter((row) => row.status === 'pending').length,
+      inProgress: rows.filter((row) => row.status === 'in_progress').length,
+      done: rows.filter((row) => row.status === 'done').length,
+      critical: rows.filter((row) => row.priority === 'critical').length,
+      assigned: rows.filter((row) => row.assignedTo).length
+    }),
+    [rows]
+  );
 
-  const apiNotice = useMemo(() => buildApiNotice({
-    apiError,
-    usingFallback,
-    entityLabel: 'task records'
-  }), [apiError, usingFallback]);
+  const apiNotice = useMemo(
+    () =>
+      buildApiNotice({
+        apiError,
+        usingFallback,
+        entityLabel: 'task records'
+      }),
+    [apiError, usingFallback]
+  );
 
   return (
     <div style={{ padding: 20 }}>
@@ -247,20 +302,48 @@ export default function TenantTasksPage() {
         }}
       >
         <div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: '#93c5fd', letterSpacing: 0.6 }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 900,
+              color: '#93c5fd',
+              letterSpacing: 0.6
+            }}
+          >
             TASK WORKSPACE
           </div>
-          <h1 style={{ margin: '6px 0 0', fontSize: 30, fontWeight: 900, color: '#ffffff' }}>
+          <h1
+            style={{
+              margin: '6px 0 0',
+              fontSize: 30,
+              fontWeight: 900,
+              color: '#ffffff'
+            }}
+          >
             Tasks
           </h1>
           <div style={{ color: '#cbd5e1', marginTop: 6 }}>
-            Premium task workspace with tenant and ATLAS task streams.
+            Operational execution workflow for outreach and patient actions.
           </div>
         </div>
 
-        <button type="button" onClick={handleRefresh} style={buttonStyle('primary')}>
-          Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            style={buttonStyle('primary')}
+          >
+            + New Task
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRefresh}
+            style={buttonStyle('secondary')}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {apiNotice ? (
@@ -283,18 +366,26 @@ export default function TenantTasksPage() {
         }}
       >
         <MetricCard label="Total Tasks" value={stats.total} tone="blue" />
-        <MetricCard label="Pending" value={stats.pending} tone="orange" />
-        <MetricCard label="Overdue" value={stats.overdue} tone="dark" />
-        <MetricCard label="Completed" value={stats.completed} tone="green" />
+        <MetricCard label="Pending" value={stats.pending} tone="dark" />
+        <MetricCard label="In Progress" value={stats.inProgress} tone="warning" />
+        <MetricCard label="Done" value={stats.done} tone="green" />
+        <MetricCard label="Critical" value={stats.critical} tone="orange" />
+        <MetricCard label="Assigned" value={stats.assigned} tone="purple" />
       </div>
 
       <div style={{ ...toolbarCardStyle(), marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 12 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '2fr 1fr auto',
+            gap: 12
+          }}
+        >
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by task, patient or owner..."
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by title, patient, doctor, assignee or id..."
             style={{
               width: '100%',
               border: '1px solid #d0d5dd',
@@ -306,7 +397,7 @@ export default function TenantTasksPage() {
 
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(event) => setStatusFilter(event.target.value)}
             style={{
               width: '100%',
               border: '1px solid #d0d5dd',
@@ -317,10 +408,11 @@ export default function TenantTasksPage() {
             }}
           >
             <option value="all">All statuses</option>
-            <option value="open">Open</option>
             <option value="pending">Pending</option>
-            <option value="overdue">Overdue</option>
-            <option value="completed">Completed</option>
+            <option value="in_progress">In Progress</option>
+            <option value="done">Done</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="escalated">Escalated</option>
           </select>
 
           <button
@@ -338,27 +430,45 @@ export default function TenantTasksPage() {
 
       <div style={tableContainerStyle()}>
         <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 14 }}>
-          Task List
+          Task Board
         </div>
 
         {loading ? (
           <PageStateCard
             title="Loading tasks"
-            message="Fetching task data from the active tenant endpoints."
+            message="Fetching operational task records."
           />
         ) : filteredRows.length === 0 ? (
           <PageStateCard
             title="No tasks found"
-            message="Try clearing filters or refresh the page to retry the tenant API."
-            actionLabel="Refresh"
-            onAction={handleRefresh}
+            message="Create a new task to start the execution workflow."
+            actionLabel="New Task"
+            onAction={() => setShowCreateModal(true)}
           />
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 980 }}>
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+                minWidth: 1480
+              }}
+            >
               <thead>
                 <tr style={{ textAlign: 'left' }}>
-                  {['Task', 'Patient', 'Owner', 'Due', 'Status'].map((heading) => (
+                  {[
+                    'Task',
+                    'Patient',
+                    'Doctor',
+                    'Status',
+                    'Priority',
+                    'Due At',
+                    'Owner',
+                    'Follow-up',
+                    'Notes',
+                    'Actions'
+                  ].map((heading) => (
                     <th
                       key={heading}
                       style={{
@@ -375,24 +485,220 @@ export default function TenantTasksPage() {
                   ))}
                 </tr>
               </thead>
+
               <tbody>
                 {filteredRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={{ padding: '16px 10px', borderBottom: '1px solid #f2f4f7', verticalAlign: 'top' }}>
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
                       <div style={{ fontWeight: 900 }}>{row.title}</div>
-                      <div style={{ color: '#667085', fontSize: 12, marginTop: 4 }}>ID: {row.id}</div>
+                      <div style={{ color: '#667085', fontSize: 12, marginTop: 4 }}>
+                        ID: {row.id}
+                      </div>
                     </td>
-                    <td style={{ padding: '16px 10px', borderBottom: '1px solid #f2f4f7', verticalAlign: 'top' }}>
-                      {row.patientName}
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      <div>{row.patientName || '—'}</div>
+                      <div style={{ color: '#667085', fontSize: 12, marginTop: 4 }}>
+                        Patient ID: {row.patientId || '—'}
+                      </div>
                     </td>
-                    <td style={{ padding: '16px 10px', borderBottom: '1px solid #f2f4f7', verticalAlign: 'top' }}>
-                      {row.owner}
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      <div>{row.doctorName || '—'}</div>
+                      <div style={{ color: '#667085', fontSize: 12, marginTop: 4 }}>
+                        Doctor ID: {row.doctorId || '—'}
+                      </div>
                     </td>
-                    <td style={{ padding: '16px 10px', borderBottom: '1px solid #f2f4f7', verticalAlign: 'top' }}>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      <span style={statusBadgeStyle(getStatusKind(row.status))}>
+                        {row.status}
+                      </span>
+                    </td>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      <span style={statusBadgeStyle(getPriorityKind(row.priority))}>
+                        {row.priority}
+                      </span>
+                    </td>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
                       {formatDateTime(row.dueAt)}
                     </td>
-                    <td style={{ padding: '16px 10px', borderBottom: '1px solid #f2f4f7', verticalAlign: 'top' }}>
-                      <span style={statusBadgeStyle(getKind(row.status))}>{row.status}</span>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      {row.assignedTo || '—'}
+                    </td>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      {row.followupId || '—'}
+                    </td>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top',
+                        maxWidth: 240
+                      }}
+                    >
+                      <div style={{ whiteSpace: 'normal' }}>{row.notes || '—'}</div>
+                    </td>
+
+                    <td
+                      style={{
+                        padding: '16px 10px',
+                        borderBottom: '1px solid #f2f4f7',
+                        verticalAlign: 'top'
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleTaskUpdate(row, {
+                              status: 'done'
+                            })
+                          }
+                          style={{
+                            border: '1px solid #d0d5dd',
+                            background: '#fff',
+                            borderRadius: 10,
+                            padding: '8px 10px',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Mark Done
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleTaskUpdate(row, {
+                              status: 'pending'
+                            })
+                          }
+                          style={{
+                            border: '1px solid #d0d5dd',
+                            background: '#fff',
+                            borderRadius: 10,
+                            padding: '8px 10px',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Mark Pending
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextDate = new Date(row.dueAt || Date.now());
+                            nextDate.setDate(nextDate.getDate() + 1);
+
+                            handleTaskUpdate(row, {
+                              due_at: nextDate.toISOString(),
+                              status: 'in_progress'
+                            });
+                          }}
+                          style={{
+                            border: '1px solid #d0d5dd',
+                            background: '#fff',
+                            borderRadius: 10,
+                            padding: '8px 10px',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Reschedule
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleTaskUpdate(row, {
+                              assigned_to: 'RAFTOP Team',
+                              status: row.status === 'pending' ? 'in_progress' : row.status
+                            })
+                          }
+                          style={{
+                            border: '1px solid #d0d5dd',
+                            background: '#fff',
+                            borderRadius: 10,
+                            padding: '8px 10px',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Assign Task
+                        </button>
+
+                        {row.patientId ? (
+                          <Link
+                            to={`/tenant/patients/${encodeURIComponent(row.patientId)}`}
+                            style={{
+                              textDecoration: 'none',
+                              border: '1px solid #d0d5dd',
+                              background: '#fff',
+                              borderRadius: 10,
+                              padding: '8px 10px',
+                              fontWeight: 800,
+                              color: '#344054'
+                            }}
+                          >
+                            Open Patient
+                          </Link>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -401,6 +707,15 @@ export default function TenantTasksPage() {
           </div>
         )}
       </div>
+
+      <TaskCreateModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={() => {
+          setShowCreateModal(false);
+          handleRefresh();
+        }}
+      />
     </div>
   );
 }
