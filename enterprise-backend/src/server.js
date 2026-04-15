@@ -22,7 +22,10 @@ const tenantFollowupRoutes = require('./routes/tenant/followup');
 const tenantNotificationsRoutes = require('./routes/tenant/notifications');
 const tenantPaymentsRoutes = require('./routes/tenant/payments');
 const tenantUsersRoutes = require('./routes/tenant/users');
-
+const tenantBillingRoutes = require('./routes/tenant/billing');
+const tenantModulesRoutes = require('./routes/tenant/modules');
+const tenantIntegrationsRoutes = require('./routes/tenant/integrations');
+const tenantBrandingRoutes = require('./routes/tenant/branding');
 const restoreBootstrapRoutes = require('./routes/restoreBootstrap');
 
 const { errorHandler } = require('./middleware/errorHandler');
@@ -66,7 +69,10 @@ app.use('/api/tenant/followup', tenantFollowupRoutes);
 app.use('/api/tenant/notifications', tenantNotificationsRoutes);
 app.use('/api/tenant/payments', tenantPaymentsRoutes);
 app.use('/api/tenant/users', tenantUsersRoutes);
-
+app.use('/api/tenant/billing', tenantBillingRoutes);
+app.use('/api/tenant/modules', tenantModulesRoutes);
+app.use('/api/tenant/integrations', tenantIntegrationsRoutes);
+app.use('/api/tenant/branding', tenantBrandingRoutes);
 app.use('/api/admin', restoreBootstrapRoutes);
 
 app.use((req, res) => {
