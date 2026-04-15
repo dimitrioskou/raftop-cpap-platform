@@ -1,7 +1,9 @@
+import { buildApiUrl } from '../lib/config';
+
 export async function fetchJson(url, options = {}) {
   const token = localStorage.getItem('raftop_auth_token') || '';
 
-  const response = await fetch(url, {
+  const response = await fetch(buildApiUrl(url), {
     method: 'GET',
     credentials: 'include',
     headers: {
@@ -19,13 +21,13 @@ export async function fetchJson(url, options = {}) {
   if (isJson) {
     try {
       payload = await response.json();
-    } catch (error) {
+    } catch (_error) {
       payload = null;
     }
   } else {
     try {
       payload = await response.text();
-    } catch (error) {
+    } catch (_error) {
       payload = null;
     }
   }
@@ -34,11 +36,7 @@ export async function fetchJson(url, options = {}) {
     let message = `Request failed: ${response.status}`;
 
     if (payload && typeof payload === 'object') {
-      message =
-        payload.message ||
-        payload.error ||
-        payload.debug ||
-        message;
+      message = payload.message || payload.error || payload.debug || message;
     } else if (typeof payload === 'string' && payload.trim()) {
       message = payload.trim();
     }
@@ -65,7 +63,7 @@ export function formatDateTime(value) {
       hour: '2-digit',
       minute: '2-digit'
     }).format(date);
-  } catch (error) {
+  } catch (_error) {
     return date.toLocaleString();
   }
 }
