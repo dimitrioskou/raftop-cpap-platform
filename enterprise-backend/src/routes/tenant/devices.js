@@ -39,6 +39,10 @@ function normalizeStatus(value) {
   return 'pending';
 }
 
+function generateDeviceId() {
+  return `devices_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function buildReadOrder(columns) {
   const updatedAtColumn = firstExisting(columns, ['updated_at', 'last_sync_at', 'created_at']);
   const idColumn = firstExisting(columns, ['id', 'device_id']);
@@ -258,7 +262,9 @@ router.post('/', async (req, res) => {
 
   const columns = await getColumns(db, 'devices');
 
-  const deviceSerial = normalizeText(req.body?.device_serial || req.body?.serial_number || req.body?.serial);
+  const deviceSerial = normalizeText(
+    req.body?.device_serial || req.body?.serial_number || req.body?.serial
+  );
   const deviceBrand = normalizeText(req.body?.device_brand || req.body?.brand);
   const model = normalizeText(req.body?.model);
   const patientIdRaw = normalizeText(req.body?.patient_id);
@@ -279,10 +285,17 @@ router.post('/', async (req, res) => {
 
   const patientId = await resolveLinkedId('patients', patientIdRaw, ['id', 'patient_id']);
   const doctorId = await resolveLinkedId('doctors', doctorIdRaw, ['id', 'doctor_id']);
+  const generatedDeviceId = generateDeviceId();
 
   const insertPairs = [];
 
-  pushIfColumnExists(insertPairs, columns, ['device_serial', 'serial_number', 'cpap_serial', 'serial'], deviceSerial);
+  pushIfColumnExists(insertPairs, columns, ['id', 'device_id'], generatedDeviceId);
+  pushIfColumnExists(
+    insertPairs,
+    columns,
+    ['device_serial', 'serial_number', 'cpap_serial', 'serial'],
+    deviceSerial
+  );
   pushIfColumnExists(insertPairs, columns, ['device_brand', 'brand', 'manufacturer'], deviceBrand);
   pushIfColumnExists(insertPairs, columns, ['model', 'device_model'], model);
   pushIfColumnExists(insertPairs, columns, ['patient_id'], patientId);
@@ -328,7 +341,7 @@ router.post('/', async (req, res) => {
     ok: true,
     message: 'Device created successfully.',
     device: {
-      id: result.rows?.[0]?.id || null,
+      id: result.rows?.[0]?.id || generatedDeviceId,
       device_serial: deviceSerial,
       device_brand: deviceBrand,
       model,
@@ -377,7 +390,9 @@ router.put('/:id', async (req, res) => {
     });
   }
 
-  const deviceSerial = normalizeText(req.body?.device_serial || req.body?.serial_number || req.body?.serial);
+  const deviceSerial = normalizeText(
+    req.body?.device_serial || req.body?.serial_number || req.body?.serial
+  );
   const deviceBrand = normalizeText(req.body?.device_brand || req.body?.brand);
   const model = normalizeText(req.body?.model);
   const patientIdRaw = normalizeText(req.body?.patient_id);
@@ -390,7 +405,8 @@ router.put('/:id', async (req, res) => {
     typeof req.body?.last_sync_at !== 'undefined'
       ? normalizeDateTime(req.body?.last_sync_at)
       : undefined;
-  const notes = typeof req.body?.notes !== 'undefined' ? normalizeText(req.body?.notes) : undefined;
+  const notes =
+    typeof req.body?.notes !== 'undefined' ? normalizeText(req.body?.notes) : undefined;
 
   const patientId =
     typeof req.body?.patient_id !== 'undefined'
@@ -404,7 +420,12 @@ router.put('/:id', async (req, res) => {
 
   const updatePairs = [];
 
-  pushIfColumnExists(updatePairs, columns, ['device_serial', 'serial_number', 'cpap_serial', 'serial'], deviceSerial);
+  pushIfColumnExists(
+    updatePairs,
+    columns,
+    ['device_serial', 'serial_number', 'cpap_serial', 'serial'],
+    deviceSerial
+  );
   pushIfColumnExists(updatePairs, columns, ['device_brand', 'brand', 'manufacturer'], deviceBrand);
   pushIfColumnExists(updatePairs, columns, ['model', 'device_model'], model);
   pushIfColumnExists(updatePairs, columns, ['patient_id'], patientId);
@@ -445,9 +466,12 @@ router.put('/:id', async (req, res) => {
     });
   }
 
+  const refreshed = await readDeviceById(req.params.id);
+
   return res.json({
     ok: true,
-    message: 'Device updated successfully.'
+    message: 'Device updated successfully.',
+    device: refreshed.device || null
   });
 });
 
