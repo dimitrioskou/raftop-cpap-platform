@@ -50,6 +50,10 @@ function normalizePriority(value) {
   return 'normal';
 }
 
+function generateTaskId() {
+  return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function buildReadOrder(columns) {
   const orderColumn = firstExisting(columns, ['updated_at', 'due_at', 'created_at']);
   const idColumn = firstExisting(columns, ['id', 'task_id']);
@@ -60,13 +64,85 @@ function buildReadOrder(columns) {
   return '1 DESC';
 }
 
-function pushIfColumnExists(payload, columns, candidates, value) {
+function isIntegerType(dataType) {
+  return ['integer', 'bigint', 'smallint'].includes(String(dataType || '').toLowerCase());
+}
+
+async function getColumnTypeMap(tableName) {
+  const result = await querySafe(
+    db,
+    `
+      SELECT column_name, data_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+    `,
+    [tableName]
+  );
+
+  if (result.error) return {};
+
+  return (result.rows || []).reduce((acc, row) => {
+    acc[row.column_name] = row.data_type;
+    return acc;
+  }, {});
+}
+
+function coerceValueForColumnType(value, dataType) {
+  if (typeof value === 'undefined') return undefined;
+  if (value === null) return null;
+
+  if (isIntegerType(dataType)) {
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (!/^-?\d+$/.test(raw)) return null;
+    return Number(raw);
+  }
+
+  return value;
+}
+
+function pushTypedIfColumnExists(payload, columns, typeMap, candidates, value) {
   const column = firstExisting(columns, candidates);
   if (!column) return null;
   if (typeof value === 'undefined') return null;
 
-  payload.push({ column, value });
+  payload.push({
+    column,
+    value: coerceValueForColumnType(value, typeMap[column])
+  });
+
   return column;
+}
+
+function pushAssigneeField(payload, columns, typeMap, value) {
+  if (typeof value === 'undefined') return null;
+
+  const textColumn = ['assigned_to', 'owner'].find(
+    (name) => columns.includes(name) && !isIntegerType(typeMap[name])
+  );
+
+  if (textColumn) {
+    payload.push({
+      column: textColumn,
+      value
+    });
+    return textColumn;
+  }
+
+  const numericColumn = ['assigned_to', 'owner'].find(
+    (name) => columns.includes(name) && isIntegerType(typeMap[name])
+  );
+
+  if (numericColumn) {
+    payload.push({
+      column: numericColumn,
+      value: coerceValueForColumnType(value, typeMap[numericColumn])
+    });
+    return numericColumn;
+  }
+
+  return null;
 }
 
 async function resolveLinkedId(tableName, rawId, idCandidates) {
@@ -272,6 +348,7 @@ router.post('/', async (req, res) => {
   }
 
   const columns = await getColumns(db, 'tasks');
+  const typeMap = await getColumnTypeMap('tasks');
 
   const title = normalizeText(req.body?.title || req.body?.task_title || req.body?.name);
   const patientIdRaw = normalizeText(req.body?.patient_id);
@@ -298,21 +375,32 @@ router.post('/', async (req, res) => {
   const followupId = await resolveLinkedId('followup', followupIdRaw, ['id', 'followup_id']);
 
   const insertPairs = [];
+  const idColumn = firstExisting(columns, ['id', 'task_id']);
 
-  pushIfColumnExists(insertPairs, columns, ['title', 'task_title', 'name'], title);
-  pushIfColumnExists(insertPairs, columns, ['patient_id'], patientId);
-  pushIfColumnExists(insertPairs, columns, ['patient_name'], patientName);
-  pushIfColumnExists(insertPairs, columns, ['doctor_id'], doctorId);
-  pushIfColumnExists(insertPairs, columns, ['doctor_name'], doctorName);
-  pushIfColumnExists(insertPairs, columns, ['followup_id'], followupId);
-  pushIfColumnExists(insertPairs, columns, ['status', 'task_status'], status);
-  pushIfColumnExists(insertPairs, columns, ['priority', 'severity'], priority);
-  pushIfColumnExists(insertPairs, columns, ['due_at', 'scheduled_at'], dueAt);
-  pushIfColumnExists(insertPairs, columns, ['assigned_to', 'owner'], assignedTo);
-  pushIfColumnExists(insertPairs, columns, ['notes', 'comment'], notes);
-  pushIfColumnExists(insertPairs, columns, ['tenant_id'], tenantId);
-  pushIfColumnExists(insertPairs, columns, ['created_at'], new Date().toISOString());
-  pushIfColumnExists(insertPairs, columns, ['updated_at'], new Date().toISOString());
+  if (idColumn && !isIntegerType(typeMap[idColumn])) {
+    pushTypedIfColumnExists(
+      insertPairs,
+      columns,
+      typeMap,
+      ['id', 'task_id'],
+      generateTaskId()
+    );
+  }
+
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['title', 'task_title', 'name'], title);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['patient_id'], patientId);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['patient_name'], patientName);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['doctor_id'], doctorId);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['doctor_name'], doctorName);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['followup_id'], followupId);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['status', 'task_status'], status);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['priority', 'severity'], priority);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['due_at', 'scheduled_at'], dueAt);
+  pushAssigneeField(insertPairs, columns, typeMap, assignedTo);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['notes', 'comment'], notes);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['tenant_id'], tenantId);
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['created_at'], new Date().toISOString());
+  pushTypedIfColumnExists(insertPairs, columns, typeMap, ['updated_at'], new Date().toISOString());
 
   if (!insertPairs.length) {
     return res.status(500).json({
@@ -374,6 +462,7 @@ router.put('/:id', async (req, res) => {
   }
 
   const columns = await getColumns(db, 'tasks');
+  const typeMap = await getColumnTypeMap('tasks');
   const idColumn = firstExisting(columns, ['id', 'task_id']);
 
   if (!idColumn) {
@@ -459,18 +548,18 @@ router.put('/:id', async (req, res) => {
 
   const updatePairs = [];
 
-  pushIfColumnExists(updatePairs, columns, ['title', 'task_title', 'name'], title);
-  pushIfColumnExists(updatePairs, columns, ['patient_id'], patientId);
-  pushIfColumnExists(updatePairs, columns, ['patient_name'], patientName);
-  pushIfColumnExists(updatePairs, columns, ['doctor_id'], doctorId);
-  pushIfColumnExists(updatePairs, columns, ['doctor_name'], doctorName);
-  pushIfColumnExists(updatePairs, columns, ['followup_id'], followupId);
-  pushIfColumnExists(updatePairs, columns, ['status', 'task_status'], status);
-  pushIfColumnExists(updatePairs, columns, ['priority', 'severity'], priority);
-  pushIfColumnExists(updatePairs, columns, ['due_at', 'scheduled_at'], dueAt);
-  pushIfColumnExists(updatePairs, columns, ['assigned_to', 'owner'], assignedTo);
-  pushIfColumnExists(updatePairs, columns, ['notes', 'comment'], notes);
-  pushIfColumnExists(updatePairs, columns, ['updated_at'], new Date().toISOString());
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['title', 'task_title', 'name'], title);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['patient_id'], patientId);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['patient_name'], patientName);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['doctor_id'], doctorId);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['doctor_name'], doctorName);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['followup_id'], followupId);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['status', 'task_status'], status);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['priority', 'severity'], priority);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['due_at', 'scheduled_at'], dueAt);
+  pushAssigneeField(updatePairs, columns, typeMap, assignedTo);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['notes', 'comment'], notes);
+  pushTypedIfColumnExists(updatePairs, columns, typeMap, ['updated_at'], new Date().toISOString());
 
   if (!updatePairs.length) {
     return res.status(400).json({
