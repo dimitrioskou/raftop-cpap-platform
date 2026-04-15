@@ -50,10 +50,6 @@ function normalizePriority(value) {
   return 'normal';
 }
 
-function generateTaskId() {
-  return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function buildReadOrder(columns) {
   const orderColumn = firstExisting(columns, ['updated_at', 'due_at', 'created_at']);
   const idColumn = firstExisting(columns, ['id', 'task_id']);
@@ -300,11 +296,9 @@ router.post('/', async (req, res) => {
   const patientId = await resolveLinkedId('patients', patientIdRaw, ['id', 'patient_id']);
   const doctorId = await resolveLinkedId('doctors', doctorIdRaw, ['id', 'doctor_id']);
   const followupId = await resolveLinkedId('followup', followupIdRaw, ['id', 'followup_id']);
-  const generatedTaskId = generateTaskId();
 
   const insertPairs = [];
 
-  pushIfColumnExists(insertPairs, columns, ['id', 'task_id'], generatedTaskId);
   pushIfColumnExists(insertPairs, columns, ['title', 'task_title', 'name'], title);
   pushIfColumnExists(insertPairs, columns, ['patient_id'], patientId);
   pushIfColumnExists(insertPairs, columns, ['patient_name'], patientName);
@@ -352,7 +346,7 @@ router.post('/', async (req, res) => {
     ok: true,
     message: 'Task created successfully.',
     task: {
-      id: result.rows?.[0]?.id || generatedTaskId,
+      id: result.rows?.[0]?.id || null,
       title,
       patient_id: patientId,
       patient_name: patientName,
@@ -414,11 +408,13 @@ router.put('/:id', async (req, res) => {
     typeof req.body?.patient_name !== 'undefined'
       ? normalizeText(req.body?.patient_name)
       : undefined;
+
   const doctorIdRaw = normalizeText(req.body?.doctor_id);
   const doctorName =
     typeof req.body?.doctor_name !== 'undefined'
       ? normalizeText(req.body?.doctor_name)
       : undefined;
+
   const followupIdRaw = normalizeText(req.body?.followup_id);
 
   const status =
