@@ -1,0 +1,55 @@
+const {
+  getTenantSubscriptionStatus
+} = require('../services/tenantSubscriptionService');
+
+function isBypassEnabled(req) {
+  if (String(process.env.SUBSCRIPTION_GUARD_ENABLED || 'false').toLowerCase() !== 'true') {
+    return true;
+  }
+
+  const bypassKey = process.env.SUBSCRIPTION_GUARD_BYPASS_KEY;
+
+  if (bypassKey && req.headers['x-subscription-bypass-key'] === bypassKey) {
+    return true;
+  }
+
+  return false;
+}
+
+async function tenantSubscriptionGuard(req, res, next) {
+  try {
+    if (isBypassEnabled(req)) {
+      return next();
+    }
+
+    const payload = await getTenantSubscriptionStatus(req);
+    const access = payload.subscription?.access;
+
+    if (!access?.isAllowed) {
+      return res.status(402).json({
+        ok: false,
+        fallback: false,
+        error: 'SUBSCRIPTION_REQUIRED',
+        message: access?.reason || 'Tenant subscription does not allow access.',
+        phase: '22.1-saas-subscription-guard',
+        tenantId: payload.tenantId,
+        subscription: payload.subscription
+      });
+    }
+
+    req.subscription = payload.subscription;
+
+    return next();
+  } catch (error) {
+    console.error('[tenantSubscriptionGuard] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUBSCRIPTION_GUARD_FAILED',
+      message: error.message
+    });
+  }
+}
+
+module.exports = tenantSubscriptionGuard;

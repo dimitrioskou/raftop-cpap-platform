@@ -2,6 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+
+function apiUrl(path) {
+  return API_BASE ? `${API_BASE}${path}` : path;
+}
+
 function inputStyle() {
   return {
     width: '100%',
@@ -14,17 +20,26 @@ function inputStyle() {
   };
 }
 
-function buttonStyle(disabled) {
+function buttonStyle(disabled, tone = 'blue') {
+  const gradients = {
+    blue: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
+    teal: 'linear-gradient(135deg, #0891b2 0%, #155e75 100%)',
+    neutral: '#ffffff'
+  };
+
   return {
     width: '100%',
-    border: '1px solid #1d4ed8',
+    border: tone === 'neutral' ? '1px solid #d0d5dd' : '1px solid transparent',
     borderRadius: 14,
     padding: '14px 16px',
-    background: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
-    color: '#fff',
+    background: gradients[tone],
+    color: tone === 'neutral' ? '#344054' : '#fff',
     fontWeight: 900,
     cursor: disabled ? 'not-allowed' : 'pointer',
-    boxShadow: '0 10px 20px rgba(37,99,235,0.20)',
+    boxShadow:
+      tone === 'neutral'
+        ? '0 2px 8px rgba(16,24,40,0.06)'
+        : '0 10px 20px rgba(37,99,235,0.20)',
     opacity: disabled ? 0.7 : 1
   };
 }
@@ -37,17 +52,51 @@ const DEMO_USERS = [
   }
 ];
 
+async function readJsonSafely(response) {
+  const text = await response.text();
+
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return {};
+  }
+}
+
+function getDefaultRedirectForUser(user, fallbackPath) {
+  const role = String(user?.role || '').toLowerCase();
+
+  if (fallbackPath && fallbackPath !== '/login') {
+    return fallbackPath;
+  }
+
+  if (role === 'patient') {
+    return '/patient/dashboard';
+  }
+
+  return '/tenant/dashboard';
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, loading, isAuthenticated, bootstrapping } = useAuth();
+  const {
+    login,
+    loginWithPayload,
+    loading,
+    isAuthenticated,
+    bootstrapping,
+    user
+  } = useAuth();
 
   const [email, setEmail] = useState('admin@raftop.local');
-const [password, setPassword] = useState('admin123!');
+  const [password, setPassword] = useState('admin123!');
   const [error, setError] = useState('');
+  const [patientLoading, setPatientLoading] = useState(false);
 
   const redirectTo = useMemo(() => {
-    return location.state?.from || '/tenant/dashboard';
+    return location.state?.from || '';
   }, [location.state]);
 
   if (bootstrapping) {
@@ -79,8 +128,8 @@ const [password, setPassword] = useState('admin123!');
     );
   }
 
-  if (isAuthenticated) {
-    return <Navigate to={redirectTo} replace />;
+  if (isAuthenticated && user) {
+    return <Navigate to={getDefaultRedirectForUser(user, redirectTo)} replace />;
   }
 
   const handleSubmit = async (event) => {
@@ -90,8 +139,8 @@ const [password, setPassword] = useState('admin123!');
     try {
       const result = await login(email, password);
 
-      if (result?.ok) {
-        navigate(redirectTo, { replace: true });
+      if (result?.ok && result?.user) {
+        navigate(getDefaultRedirectForUser(result.user, redirectTo), { replace: true });
         return;
       }
 
@@ -105,6 +154,36 @@ const [password, setPassword] = useState('admin123!');
     setEmail(demoUser.email);
     setPassword(demoUser.password);
     setError('');
+  };
+
+  const handlePatientDemoLogin = async () => {
+    setPatientLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(apiUrl('/api/auth/dev-patient-login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        credentials: 'include'
+      });
+
+      const payload = await readJsonSafely(response);
+
+      if (!response.ok || !payload?.ok || !payload?.token || !payload?.user) {
+        throw new Error(payload?.message || 'Dev patient login failed');
+      }
+
+      const result = await loginWithPayload(payload);
+
+      navigate(getDefaultRedirectForUser(result.user, redirectTo), { replace: true });
+    } catch (err) {
+      setError(err?.message || 'Dev patient login failed');
+    } finally {
+      setPatientLoading(false);
+    }
   };
 
   return (
@@ -121,7 +200,7 @@ const [password, setPassword] = useState('admin123!');
       <div
         style={{
           width: '100%',
-          maxWidth: 460,
+          maxWidth: 520,
           background: '#fff',
           border: '1px solid #e5e7eb',
           borderRadius: 24,
@@ -138,7 +217,7 @@ const [password, setPassword] = useState('admin123!');
         </h1>
 
         <div style={{ color: '#667085', marginBottom: 18 }}>
-          Premium CPAP operations workspace access.
+          Provider and patient access inside the same ecosystem.
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -183,10 +262,25 @@ const [password, setPassword] = useState('admin123!');
             </div>
           ) : null}
 
-          <button type="submit" disabled={loading} style={buttonStyle(loading)}>
+          <button
+            type="submit"
+            disabled={loading || patientLoading}
+            style={buttonStyle(loading || patientLoading)}
+          >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
+
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            disabled={loading || patientLoading}
+            onClick={handlePatientDemoLogin}
+            style={buttonStyle(loading || patientLoading, 'teal')}
+          >
+            {patientLoading ? 'Opening patient workspace...' : 'Continue as Patient Demo'}
+          </button>
+        </div>
 
         <div
           style={{

@@ -19,13 +19,15 @@ const LEGACY_KEYS = [
   'accessToken',
   'user',
   'authUser',
+  'userRole',
   'raftop_token',
   'raftop_user'
 ];
 
-const API_BASE = (process.env.REACT_APP_API_URL || 'https://raftop-enterprise-backend.onrender.com').replace(/\/+$/, '');
+const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
 
-function apiUrl(path) {
+function buildUrl(path) {
+  if (!API_BASE) return path;
   return `${API_BASE}${path}`;
 }
 
@@ -37,33 +39,8 @@ function safeJsonParse(raw) {
   }
 }
 
-function readStoredToken() {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || '';
-  } catch (_error) {
-    return '';
-  }
-}
-
-function readStoredUser() {
-  try {
-    return safeJsonParse(localStorage.getItem(USER_KEY));
-  } catch (_error) {
-    return null;
-  }
-}
-
-function clearLegacyAuthKeys() {
-  try {
-    LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('authToken');
-    sessionStorage.removeItem('accessToken');
-    sessionStorage.removeItem('user');
-    sessionStorage.removeItem('authUser');
-  } catch (_error) {
-    // ignore storage cleanup issues
-  }
+function normalizeRole(value) {
+  return String(value || 'guest').trim().toLowerCase();
 }
 
 function normalizeUser(user) {
@@ -71,24 +48,30 @@ function normalizeUser(user) {
     return null;
   }
 
+  const id = user.id ?? user.userId ?? user.user_id ?? null;
+  const tenantId =
+    user.tenantId ??
+    user.tenant_id ??
+    user.organizationId ??
+    user.organization_id ??
+    null;
+
+  const fullName =
+    user.fullName ??
+    user.full_name ??
+    user.name ??
+    user.display_name ??
+    null;
+
   return {
-    id: user.id ?? user.userId ?? user.user_id ?? null,
+    id,
     userId: user.userId ?? user.id ?? user.user_id ?? null,
     email: user.email ?? user.userEmail ?? user.user_email ?? null,
-    name: user.name ?? user.full_name ?? user.fullName ?? null,
-    role: String(user.role ?? user.userRole ?? user.user_role ?? 'guest').toLowerCase(),
-    tenantId:
-      user.tenantId ??
-      user.tenant_id ??
-      user.organizationId ??
-      user.organization_id ??
-      null,
-    organizationId:
-      user.organizationId ??
-      user.organization_id ??
-      user.tenantId ??
-      user.tenant_id ??
-      null
+    role: normalizeRole(user.role ?? user.userRole ?? user.user_role ?? 'guest'),
+    tenantId,
+    organizationId: user.organizationId ?? user.organization_id ?? tenantId,
+    fullName,
+    name: fullName
   };
 }
 
@@ -97,7 +80,7 @@ function normalizeAuthPayload(payload) {
   const user = normalizeUser(payload?.user || null);
 
   return {
-    ok: Boolean(payload?.ok && token),
+    ok: Boolean(payload?.ok && token && user),
     token,
     user
   };
@@ -120,14 +103,44 @@ async function readJsonSafely(response) {
   }
 }
 
+function readStoredToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function readStoredUser() {
+  try {
+    return normalizeUser(safeJsonParse(localStorage.getItem(USER_KEY)));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function clearLegacyAuthKeys() {
+  try {
+    LEGACY_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    });
+  } catch (_error) {
+    // ignore storage cleanup issues
+  }
+}
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => readStoredToken());
-  const [user, setUser] = useState(() => normalizeUser(readStoredUser()));
+  const [user, setUser] = useState(() => readStoredUser());
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
-  const didBootstrapRef = useRef(false);
+
+  const bootstrapRef = useRef(false);
 
   const persistAuth = useCallback((nextToken, nextUser) => {
+    const normalizedUser = normalizeUser(nextUser);
+
     try {
       if (nextToken) {
         localStorage.setItem(TOKEN_KEY, nextToken);
@@ -135,8 +148,8 @@ export function AuthProvider({ children }) {
         localStorage.removeItem(TOKEN_KEY);
       }
 
-      if (nextUser) {
-        localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+      if (normalizedUser) {
+        localStorage.setItem(USER_KEY, JSON.stringify(normalizedUser));
       } else {
         localStorage.removeItem(USER_KEY);
       }
@@ -145,7 +158,7 @@ export function AuthProvider({ children }) {
     }
 
     setToken(nextToken || '');
-    setUser(nextUser || null);
+    setUser(normalizedUser || null);
   }, []);
 
   const clearAuth = useCallback(() => {
@@ -153,12 +166,69 @@ export function AuthProvider({ children }) {
     persistAuth('', null);
   }, [persistAuth]);
 
+  const refreshMe = useCallback(async () => {
+    const existingToken = readStoredToken();
+
+    if (!existingToken) {
+      clearAuth();
+      return {
+        ok: false,
+        message: 'No stored token'
+      };
+    }
+
+    try {
+      const response = await fetch(buildUrl('/api/auth/me'), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${existingToken}`
+        },
+        credentials: 'include'
+      });
+
+      const payload = await readJsonSafely(response);
+
+      if (!response.ok || !payload?.ok) {
+        clearAuth();
+        return {
+          ok: false,
+          message: payload?.message || 'Session restore failed'
+        };
+      }
+
+      const normalizedUser = normalizeUser(payload?.user);
+
+      if (!normalizedUser) {
+        clearAuth();
+        return {
+          ok: false,
+          message: 'Invalid user payload'
+        };
+      }
+
+      persistAuth(existingToken, normalizedUser);
+
+      return {
+        ok: true,
+        token: existingToken,
+        user: normalizedUser
+      };
+    } catch (error) {
+      clearAuth();
+      return {
+        ok: false,
+        message: error?.message || 'Session restore failed'
+      };
+    }
+  }, [clearAuth, persistAuth]);
+
   const login = useCallback(
     async (email, password) => {
       setLoading(true);
 
       try {
-        const response = await fetch(apiUrl('/api/auth/login'), {
+        const response = await fetch(buildUrl('/api/auth/login'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -193,11 +263,31 @@ export function AuthProvider({ children }) {
     [persistAuth]
   );
 
+  const loginWithPayload = useCallback(
+    async (payload) => {
+      const normalized = normalizeAuthPayload(payload);
+
+      if (!normalized.ok) {
+        throw new Error(payload?.message || 'Manual login payload is invalid');
+      }
+
+      clearLegacyAuthKeys();
+      persistAuth(normalized.token, normalized.user);
+
+      return {
+        ok: true,
+        token: normalized.token,
+        user: normalized.user
+      };
+    },
+    [persistAuth]
+  );
+
   const logout = useCallback(async () => {
     try {
       const existingToken = readStoredToken();
 
-      await fetch(apiUrl('/api/auth/logout'), {
+      await fetch(buildUrl('/api/auth/logout'), {
         method: 'POST',
         headers: existingToken
           ? {
@@ -207,64 +297,18 @@ export function AuthProvider({ children }) {
         credentials: 'include'
       });
     } catch (_error) {
-      // ignore logout request failures
+      // ignore remote logout failure
     }
 
     clearAuth();
   }, [clearAuth]);
 
-  const refreshMe = useCallback(async () => {
-    const existingToken = readStoredToken();
-
-    if (!existingToken) {
-      clearAuth();
-      return {
-        ok: false
-      };
-    }
-
-    try {
-      const response = await fetch(apiUrl('/api/auth/me'), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${existingToken}`
-        },
-        credentials: 'include'
-      });
-
-      const payload = await readJsonSafely(response);
-
-      if (!response.ok || !payload?.ok) {
-        clearAuth();
-        return {
-          ok: false,
-          message: payload?.message || 'Session restore failed'
-        };
-      }
-
-      const normalizedUser = normalizeUser(payload?.user || null);
-      persistAuth(existingToken, normalizedUser);
-
-      return {
-        ok: true,
-        user: normalizedUser
-      };
-    } catch (error) {
-      clearAuth();
-      return {
-        ok: false,
-        message: error?.message || 'Session restore failed'
-      };
-    }
-  }, [clearAuth, persistAuth]);
-
   useEffect(() => {
-    if (didBootstrapRef.current) {
+    if (bootstrapRef.current) {
       return;
     }
 
-    didBootstrapRef.current = true;
+    bootstrapRef.current = true;
 
     (async () => {
       setBootstrapping(true);
@@ -281,11 +325,12 @@ export function AuthProvider({ children }) {
       bootstrapping,
       isAuthenticated: Boolean(token && user),
       login,
+      loginWithPayload,
       logout,
       refreshMe,
       clearAuth
     }),
-    [token, user, loading, bootstrapping, login, logout, refreshMe, clearAuth]
+    [token, user, loading, bootstrapping, login, loginWithPayload, logout, refreshMe, clearAuth]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

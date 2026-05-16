@@ -1,432 +1,674 @@
-const express = require('express');
-const router = express.Router();
-const db = require('../../db');
+'use strict';
 
-function q(name) {
-  return `"${String(name).replace(/"/g, '""')}"`;
+const express = require('express');
+
+const router = express.Router();
+
+let cachedDb = null;
+
+function loadDb() {
+  if (cachedDb) return cachedDb;
+
+  const candidates = [
+    '../../services/db',
+    '../../db',
+    '../../config/db',
+    '../../database',
+    '../../database/db',
+    '../../lib/db'
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      const mod = require(candidate);
+
+      if (mod && typeof mod.query === 'function') {
+        cachedDb = mod;
+        return cachedDb;
+      }
+
+      if (mod && mod.pool && typeof mod.pool.query === 'function') {
+        cachedDb = mod.pool;
+        return cachedDb;
+      }
+
+      if (mod && mod.default && typeof mod.default.query === 'function') {
+        cachedDb = mod.default;
+        return cachedDb;
+      }
+
+      if (mod && mod.default && mod.default.pool && typeof mod.default.pool.query === 'function') {
+        cachedDb = mod.default.pool;
+        return cachedDb;
+      }
+    } catch (_error) {
+      // Try next candidate.
+    }
+  }
+
+  return null;
 }
 
-async function querySafe(text, params = []) {
-  try {
-    return await db.query(text, params);
-  } catch (error) {
-    return { rows: [], error };
+async function dbQuery(text, params = []) {
+  const db = loadDb();
+
+  if (!db || typeof db.query !== 'function') {
+    throw new Error('No database query executor available.');
   }
+
+  return db.query(text, params);
+}
+
+function getTenantId(req) {
+  return (
+    req.user?.tenant_id ||
+    req.user?.tenantId ||
+    req.headers['x-tenant-id'] ||
+    req.query.tenant_id ||
+    req.query.tenantId ||
+    'raftopoulos-live'
+  );
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function upper(value, fallback = 'UNKNOWN') {
+  return String(value || fallback).trim().toUpperCase();
 }
 
 async function tableExists(tableName) {
-  const result = await querySafe(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name = $1
-      ) AS exists
-    `,
-    [tableName]
-  );
+  try {
+    const result = await dbQuery(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = $1
+        ) AS exists
+      `,
+      [tableName]
+    );
 
-  if (result.error) return false;
-  return Boolean(result.rows?.[0]?.exists);
+    return result.rows?.[0]?.exists === true;
+  } catch (_error) {
+    return false;
+  }
 }
 
 async function getColumns(tableName) {
-  const result = await querySafe(
-    `
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = $1
-      ORDER BY ordinal_position
-    `,
-    [tableName]
-  );
-
-  if (result.error) return [];
-  return result.rows.map((row) => row.column_name);
-}
-
-function firstExisting(columns, candidates) {
-  return candidates.find((name) => columns.includes(name)) || null;
-}
-
-function safeJoinOn(leftAlias, leftColumn, rightAlias, rightColumn) {
-  return `${leftAlias}.${q(leftColumn)}::text = ${rightAlias}.${q(rightColumn)}::text`;
-}
-
-function normalizePriority(statusValue, hoursValue, riskValue) {
-  const status = String(statusValue || '').toLowerCase();
-  const risk = String(riskValue || '').toLowerCase();
-  const hours = Number(hoursValue || 0);
-
-  if (status.includes('critical')) return 'critical';
-  if (risk.includes('high')) return 'critical';
-  if (hours > 0 && hours < 4) return 'critical';
-
-  if (status.includes('warning') || status.includes('medium') || status.includes('low')) return 'warning';
-  if (hours > 0 && hours < 8) return 'warning';
-
-  return 'normal';
-}
-
-function normalizeRisk(statusValue, hoursValue, riskValue) {
-  const risk = String(riskValue || '').toLowerCase();
-  const status = String(statusValue || '').toLowerCase();
-  const hours = Number(hoursValue || 0);
-
-  if (risk.includes('high') || status.includes('critical') || (hours > 0 && hours < 4)) return 'high';
-  if (risk.includes('medium') || status.includes('warning') || status.includes('low') || (hours > 0 && hours < 8)) return 'medium';
-  return 'low';
-}
-
-function pickPatientName(row) {
-  return row.patient_name || row.name || `Patient ${row.id || ''}`.trim();
-}
-
-function pickDoctorName(row) {
-  if (row.doctor_name) return row.doctor_name;
-  if (row.doctor_id) return `Doctor #${row.doctor_id}`;
-  return '—';
-}
-
-async function readAtlasBasePatients() {
-  const patientsExists = await tableExists('patients');
-  const doctorsExists = await tableExists('doctors');
-
-  const patientsColumns = patientsExists ? await getColumns('patients') : [];
-  const doctorsColumns = doctorsExists ? await getColumns('doctors') : [];
-
-  if (!patientsExists) {
-    return {
-      rows: [],
-      meta: {
-        patientsTable: false,
-        doctorsTable: doctorsExists,
-        patientsColumns,
-        doctorsColumns
-      },
-      debug: 'patients_table_missing'
-    };
-  }
-
-  const patientIdColumn = firstExisting(patientsColumns, ['id', 'patient_id']);
-  const patientNameColumn = firstExisting(patientsColumns, ['name', 'full_name', 'fullname']);
-  const patientHoursColumn = firstExisting(patientsColumns, ['cpap_hours', 'usage_hours', 'compliance_hours', 'monthly_usage_hours']);
-  const patientStatusColumn = firstExisting(patientsColumns, ['compliance_status', 'status']);
-  const patientRiskColumn = firstExisting(patientsColumns, ['risk_level', 'risk_score']);
-  const patientDoctorIdColumn = firstExisting(patientsColumns, ['doctor_id']);
-  const patientCreatedColumn = firstExisting(patientsColumns, ['updated_at', 'created_at']);
-
-  const doctorIdColumn = firstExisting(doctorsColumns, ['id', 'doctor_id']);
-  const doctorNameColumn = firstExisting(doctorsColumns, ['name', 'full_name', 'fullname']);
-
-  if (!patientIdColumn) {
-    return {
-      rows: [],
-      meta: {
-        patientsTable: true,
-        doctorsTable: doctorsExists,
-        patientsColumns,
-        doctorsColumns
-      },
-      debug: 'patient_id_column_missing'
-    };
-  }
-
-  const joins = [];
-
-  if (patientDoctorIdColumn && doctorIdColumn && doctorsExists) {
-    joins.push(
-      `LEFT JOIN doctors d ON ${safeJoinOn('d', doctorIdColumn, 'p', patientDoctorIdColumn)}`
+  try {
+    const result = await dbQuery(
+      `
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+      `,
+      [tableName]
     );
+
+    return (result.rows || []).map((row) => row.column_name);
+  } catch (_error) {
+    return [];
   }
-
-  const doctorExpr =
-    doctorNameColumn && joins.length
-      ? `COALESCE(d.${q(doctorNameColumn)}::text, 'Doctor #' || COALESCE(p.${q(patientDoctorIdColumn)}::text, '—'))`
-      : patientDoctorIdColumn
-      ? `'Doctor #' || COALESCE(p.${q(patientDoctorIdColumn)}::text, '—')`
-      : `NULL`;
-
-  const sql = `
-    SELECT
-      p.${q(patientIdColumn)}::text AS ${q('id')},
-      ${
-        patientNameColumn
-          ? `p.${q(patientNameColumn)}::text AS ${q('patient_name')}`
-          : `NULL AS ${q('patient_name')}`
-      },
-      ${
-        patientHoursColumn
-          ? `p.${q(patientHoursColumn)}::text AS ${q('cpap_hours')}`
-          : `NULL AS ${q('cpap_hours')}`
-      },
-      ${
-        patientStatusColumn
-          ? `p.${q(patientStatusColumn)}::text AS ${q('compliance_status')}`
-          : `NULL AS ${q('compliance_status')}`
-      },
-      ${
-        patientRiskColumn
-          ? `p.${q(patientRiskColumn)}::text AS ${q('risk_level')}`
-          : `NULL AS ${q('risk_level')}`
-      },
-      ${doctorExpr} AS ${q('doctor_name')},
-      ${
-        patientDoctorIdColumn
-          ? `p.${q(patientDoctorIdColumn)}::text AS ${q('doctor_id')}`
-          : `NULL AS ${q('doctor_id')}`
-      },
-      ${
-        patientCreatedColumn
-          ? `p.${q(patientCreatedColumn)}::text AS ${q('created_at')}`
-          : `NULL AS ${q('created_at')}`
-      }
-    FROM patients p
-    ${joins.join('\n')}
-    ORDER BY ${patientCreatedColumn ? `p.${q(patientCreatedColumn)} DESC NULLS LAST` : `p.${q(patientIdColumn)} DESC`}
-    LIMIT 500
-  `;
-
-  const result = await querySafe(sql);
-
-  if (result.error) {
-    return {
-      rows: [],
-      meta: {
-        patientsTable: true,
-        doctorsTable: doctorsExists,
-        patientsColumns,
-        doctorsColumns
-      },
-      debug: result.error.message
-    };
-  }
-
-  return {
-    rows: result.rows || [],
-    meta: {
-      patientsTable: true,
-      doctorsTable: doctorsExists,
-      patientsColumns,
-      doctorsColumns
-    },
-    debug: null
-  };
 }
 
-function buildSummaryRows(baseRows) {
-  return baseRows.map((row, index) => {
-    const hours = Number(row.cpap_hours || 0);
-    const risk = normalizeRisk(row.compliance_status, hours, row.risk_level);
-    const priority = normalizePriority(row.compliance_status, hours, row.risk_level);
-
-    let groupName = 'Stable Patients';
-    if (priority === 'critical') groupName = 'Below 4h Critical';
-    else if (priority === 'warning') groupName = 'Below 8h Follow-up';
-
-    return {
-      id: `atlas-summary-${row.id || index + 1}`,
-      group_name: groupName,
-      patient_name: pickPatientName(row),
-      risk,
-      priority,
-      status: 'open',
-      doctor_name: pickDoctorName(row),
-      doctor_id: row.doctor_id || null
-    };
-  });
+function hasColumn(columns, name) {
+  return columns.includes(name);
 }
 
-function buildQueueRows(baseRows) {
-  return baseRows
-    .filter((row) => normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level) !== 'normal')
-    .map((row, index) => {
-      const priority = normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level);
-
-      return {
-        id: `atlas-queue-${row.id || index + 1}`,
-        patient_name: pickPatientName(row),
-        queue_name: priority === 'critical' ? 'Critical Compliance Queue' : 'Warning Compliance Queue',
-        priority,
-        owner: 'ATLAS Team',
-        due_at: row.created_at || new Date().toISOString(),
-        doctor_name: pickDoctorName(row),
-        doctor_id: row.doctor_id || null
-      };
-    });
+function firstExistingColumn(columns, names) {
+  return names.find((name) => hasColumn(columns, name)) || null;
 }
 
-function buildDailyRows(baseRows) {
-  return baseRows
-    .filter((row) => normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level) !== 'normal')
-    .map((row, index) => {
-      const priority = normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level);
-
-      return {
-        id: `atlas-daily-${row.id || index + 1}`,
-        patient_name: pickPatientName(row),
-        activity:
-          priority === 'critical'
-            ? 'Immediate patient outreach'
-            : 'Scheduled adherence follow-up',
-        priority,
-        scheduled_at: row.created_at || new Date().toISOString(),
-        status: priority === 'critical' ? 'pending' : 'scheduled',
-        doctor_name: pickDoctorName(row),
-        doctor_id: row.doctor_id || null
-      };
-    });
-}
-
-function buildTaskRows(baseRows) {
-  return baseRows
-    .filter((row) => normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level) !== 'normal')
-    .map((row, index) => {
-      const priority = normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level);
-
-      return {
-        id: `atlas-task-${row.id || index + 1}`,
-        title:
-          priority === 'critical'
-            ? 'Escalate severe low-usage patient'
-            : 'Review warning-level adherence case',
-        owner: 'ATLAS Team',
-        patient_name: pickPatientName(row),
-        due_at: row.created_at || new Date().toISOString(),
-        status: priority === 'critical' ? 'overdue' : 'pending',
-        doctor_name: pickDoctorName(row),
-        doctor_id: row.doctor_id || null
-      };
-    });
-}
-
-function buildAlertRows(baseRows) {
-  return baseRows
-    .filter((row) => normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level) !== 'normal')
-    .map((row, index) => {
-      const priority = normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level);
-
-      return {
-        id: `atlas-alert-${row.id || index + 1}`,
-        alert_name:
-          priority === 'critical'
-            ? 'Critical CPAP compliance drop'
-            : 'CPAP usage below target',
-        patient_name: pickPatientName(row),
-        severity: priority,
-        status: 'open',
-        created_at: row.created_at || new Date().toISOString(),
-        doctor_name: pickDoctorName(row),
-        doctor_id: row.doctor_id || null
-      };
-    });
-}
-
-function buildAutoActionRows(baseRows) {
-  const criticalCount = baseRows.filter(
-    (row) => normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level) === 'critical'
-  ).length;
-
-  const warningCount = baseRows.filter(
-    (row) => normalizePriority(row.compliance_status, row.cpap_hours, row.risk_level) === 'warning'
-  ).length;
-
-  const now = new Date().toISOString();
-
+function buildDemoSignals(tenantId) {
   return [
     {
-      id: 'atlas-auto-1',
-      rule_name: 'Critical adherence escalation',
-      action_name: `Create ${criticalCount} critical follow-up task(s)`,
-      last_run_at: now,
-      status: criticalCount > 0 ? 'success' : 'scheduled'
+      id: 'sig-raftop-001',
+      tenantId,
+      tenant_id: tenantId,
+      patientName: 'ΚΟΥΤΡΩΤΣΙΟΣ ΔΗΜΗΤΡΙΟΣ',
+      patient_name: 'ΚΟΥΤΡΩΤΣΙΟΣ ΔΗΜΗΤΡΙΟΣ',
+      title: 'Low CPAP usage',
+      signalType: 'LOW_USAGE',
+      signal_type: 'LOW_USAGE',
+      severity: 'HIGH',
+      status: 'OPEN',
+      source: 'ATLAS',
+      description: 'CPAP usage below 80h/month compliance reference point.',
+      nextBestAction: 'Call patient within 48h and verify usage barriers.',
+      next_best_action: 'Call patient within 48h and verify usage barriers.',
+      monthlyHours: 42,
+      monthly_hours: 42,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
     },
     {
-      id: 'atlas-auto-2',
-      rule_name: 'Warning adherence monitoring',
-      action_name: `Queue ${warningCount} warning case(s)`,
-      last_run_at: now,
-      status: warningCount > 0 ? 'success' : 'scheduled'
+      id: 'sig-raftop-002',
+      tenantId,
+      tenant_id: tenantId,
+      patientName: 'Γεώργιος Παπαδόπουλος',
+      patient_name: 'Γεώργιος Παπαδόπουλος',
+      title: 'Early adherence risk',
+      signalType: 'EARLY_ADHERENCE_RISK',
+      signal_type: 'EARLY_ADHERENCE_RISK',
+      severity: 'MEDIUM',
+      status: 'OPEN',
+      source: 'ATLAS',
+      description: 'New CPAP start with first-14-days adherence risk.',
+      nextBestAction: 'Schedule early coaching call.',
+      next_best_action: 'Schedule early coaching call.',
+      monthlyHours: 61,
+      monthly_hours: 61,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    },
+    {
+      id: 'sig-raftop-003',
+      tenantId,
+      tenant_id: tenantId,
+      patientName: 'Μαρία Κωνσταντίνου',
+      patient_name: 'Μαρία Κωνσταντίνου',
+      title: 'Doctor report ready',
+      signalType: 'DOCTOR_REPORT_READY',
+      signal_type: 'DOCTOR_REPORT_READY',
+      severity: 'LOW',
+      status: 'READY',
+      source: 'REPORTING',
+      description: 'Doctor-channel report is ready for review.',
+      nextBestAction: 'Send concise compliance update to referring doctor.',
+      next_best_action: 'Send concise compliance update to referring doctor.',
+      monthlyHours: 93,
+      monthly_hours: 93,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
     }
   ];
 }
 
-router.get('/summary', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  return res.json({
-    summary: buildSummaryRows(data.rows),
-    total: data.rows.length,
-    meta: data.meta,
-    debug: data.debug
+function buildDemoTasks(tenantId) {
+  return [
+    {
+      id: 'task-raftop-001',
+      tenantId,
+      tenant_id: tenantId,
+      title: 'Call high-risk CPAP patient',
+      description: 'Patient is below 80h/month usage.',
+      patientName: 'ΚΟΥΤΡΩΤΣΙΟΣ ΔΗΜΗΤΡΙΟΣ',
+      patient_name: 'ΚΟΥΤΡΩΤΣΙΟΣ ΔΗΜΗΤΡΙΟΣ',
+      priority: 'HIGH',
+      status: 'OPEN',
+      source: 'ATLAS',
+      linkedSignalId: 'sig-raftop-001',
+      linked_signal_id: 'sig-raftop-001',
+      dueAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      due_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: 'task-raftop-002',
+      tenantId,
+      tenant_id: tenantId,
+      title: 'Early coaching call',
+      description: 'Prevent early CPAP abandonment.',
+      patientName: 'Γεώργιος Παπαδόπουλος',
+      patient_name: 'Γεώργιος Παπαδόπουλος',
+      priority: 'MEDIUM',
+      status: 'OPEN',
+      source: 'ATLAS',
+      linkedSignalId: 'sig-raftop-002',
+      linked_signal_id: 'sig-raftop-002',
+      dueAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+      due_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+    }
+  ];
+}
+
+function normalizeSignal(row = {}, tenantId) {
+  const severity = upper(row.severity || row.priority, 'MEDIUM');
+  const status = upper(row.status || row.followup_status || row.task_status, 'OPEN');
+
+  return {
+    id: row.id,
+    tenantId: row.tenant_id || tenantId,
+    tenant_id: row.tenant_id || tenantId,
+    patientName: row.patient_name || row.patientName || row.name || null,
+    patient_name: row.patient_name || row.patientName || row.name || null,
+    title: row.title || row.name || row.issue_title || 'Patient signal',
+    signalType: row.signal_type || row.signalType || row.issue_type || row.issueType || 'MANUAL_SIGNAL',
+    signal_type: row.signal_type || row.signalType || row.issue_type || row.issueType || 'MANUAL_SIGNAL',
+    description: row.description || row.message || '',
+    severity,
+    priority: severity,
+    status,
+    source: row.source || 'database',
+    monthlyHours: row.monthly_hours || row.monthlyHours || null,
+    monthly_hours: row.monthly_hours || row.monthlyHours || null,
+    nextBestAction:
+      row.next_best_action ||
+      row.nextBestAction ||
+      row.metadata?.nextBestAction ||
+      'Review and assign follow-up.',
+    next_best_action:
+      row.next_best_action ||
+      row.nextBestAction ||
+      row.metadata?.nextBestAction ||
+      'Review and assign follow-up.',
+    metadata: row.metadata || {},
+    createdAt: row.created_at || row.createdAt || null,
+    created_at: row.created_at || row.createdAt || null,
+    updatedAt: row.updated_at || row.updatedAt || null,
+    updated_at: row.updated_at || row.updatedAt || null
+  };
+}
+
+function normalizeTask(row = {}, tenantId) {
+  const priority = upper(row.priority, 'MEDIUM');
+  const status = upper(row.status || row.task_status, 'OPEN');
+
+  return {
+    id: row.id,
+    taskId: row.id,
+    task_id: row.id,
+    tenantId: row.tenant_id || tenantId,
+    tenant_id: row.tenant_id || tenantId,
+    title: row.title || 'Task',
+    description: row.description || row.title || 'Task',
+    patientName: row.patient_name || row.patientName || null,
+    patient_name: row.patient_name || row.patientName || null,
+    priority,
+    status,
+    source: row.source || row.source_type || 'ATLAS',
+    linkedSignalId: row.linked_signal_id || row.signal_id || null,
+    linked_signal_id: row.linked_signal_id || row.signal_id || null,
+    dueAt: row.due_at || row.dueAt || null,
+    due_at: row.due_at || row.dueAt || null,
+    metadata: row.metadata || {},
+    createdAt: row.created_at || row.createdAt || null,
+    created_at: row.created_at || row.createdAt || null,
+    updatedAt: row.updated_at || row.updatedAt || null,
+    updated_at: row.updated_at || row.updatedAt || null
+  };
+}
+
+async function getSignals(tenantId) {
+  const signalTables = ['patient_signals', 'atlas_signals'];
+
+  for (const tableName of signalTables) {
+    if (!(await tableExists(tableName))) continue;
+
+    const columns = await getColumns(tableName);
+    const tenantColumn = hasColumn(columns, 'tenant_id') ? 'tenant_id' : null;
+    const orderColumn = firstExistingColumn(columns, ['updated_at', 'created_at']);
+
+    const whereSql = tenantColumn
+      ? `WHERE COALESCE(${tenantColumn}::text, $1::text) = $1::text`
+      : '';
+
+    const orderSql = orderColumn
+      ? `ORDER BY ${orderColumn} DESC NULLS LAST`
+      : '';
+
+    try {
+      const result = await dbQuery(
+        `
+          SELECT *
+          FROM ${tableName}
+          ${whereSql}
+          ${orderSql}
+          LIMIT 200
+        `,
+        tenantColumn ? [tenantId] : []
+      );
+
+      const rows = (result.rows || []).map((row) => normalizeSignal(row, tenantId));
+
+      if (rows.length > 0) return rows;
+    } catch (_error) {
+      // Try next table.
+    }
+  }
+
+  return buildDemoSignals(tenantId);
+}
+
+async function getTasks(tenantId) {
+  if (!(await tableExists('atlas_tasks'))) {
+    return buildDemoTasks(tenantId);
+  }
+
+  const columns = await getColumns('atlas_tasks');
+  const tenantFilter = hasColumn(columns, 'tenant_id')
+    ? `WHERE COALESCE(tenant_id::text, $1::text) = $1::text`
+    : '';
+
+  const orderColumn = firstExistingColumn(columns, ['updated_at', 'created_at']);
+
+  const orderSql = orderColumn
+    ? `ORDER BY ${orderColumn} DESC NULLS LAST`
+    : '';
+
+  try {
+    const result = await dbQuery(
+      `
+        SELECT *
+        FROM atlas_tasks
+        ${tenantFilter}
+        ${orderSql}
+        LIMIT 200
+      `,
+      tenantFilter ? [tenantId] : []
+    );
+
+    const rows = (result.rows || []).map((row) => normalizeTask(row, tenantId));
+
+    if (rows.length > 0) return rows;
+  } catch (_error) {
+    return buildDemoTasks(tenantId);
+  }
+
+  return buildDemoTasks(tenantId);
+}
+
+function priorityScore(value) {
+  const p = upper(value, 'LOW');
+
+  if (p === 'CRITICAL') return 100;
+  if (p === 'HIGH') return 80;
+  if (p === 'MEDIUM' || p === 'WARNING') return 55;
+  if (p === 'LOW') return 25;
+
+  return 10;
+}
+
+function statusScore(value) {
+  const s = upper(value, 'OPEN');
+
+  if (s === 'OPEN' || s === 'PENDING') return 20;
+  if (s === 'IN_PROGRESS') return 10;
+  if (s === 'ESCALATED') return 30;
+  if (s === 'READY') return 5;
+  if (s === 'DONE' || s === 'RESOLVED' || s === 'COMPLETED') return -20;
+
+  return 0;
+}
+
+function buildQueue(signals, tasks) {
+  const taskBySignal = new Map();
+
+  for (const task of tasks) {
+    const signalId = task.linkedSignalId || task.linked_signal_id;
+
+    if (!signalId) continue;
+
+    if (!taskBySignal.has(signalId)) {
+      taskBySignal.set(signalId, []);
+    }
+
+    taskBySignal.get(signalId).push(task);
+  }
+
+  const signalItems = signals.map((signal) => {
+    const linkedTasks = taskBySignal.get(signal.id) || [];
+    const score = priorityScore(signal.severity) + statusScore(signal.status) + linkedTasks.length * 8;
+
+    return {
+      id: `atlas-${signal.id}`,
+      type: 'PATIENT_SIGNAL',
+      tenantId: signal.tenantId,
+      tenant_id: signal.tenant_id,
+      patientName: signal.patientName,
+      patient_name: signal.patient_name,
+      title: signal.title,
+      description: signal.description,
+      signalType: signal.signalType,
+      signal_type: signal.signal_type,
+      severity: signal.severity,
+      priority: signal.severity,
+      status: signal.status,
+      source: signal.source,
+      riskScore: score,
+      risk_score: score,
+      monthlyHours: signal.monthlyHours,
+      monthly_hours: signal.monthly_hours,
+      nextBestAction: signal.nextBestAction,
+      next_best_action: signal.next_best_action,
+      linkedTasks,
+      linked_tasks: linkedTasks,
+      createdAt: signal.createdAt,
+      created_at: signal.created_at,
+      updatedAt: signal.updatedAt,
+      updated_at: signal.updated_at
+    };
   });
+
+  const unlinkedTaskItems = tasks
+    .filter((task) => !task.linkedSignalId && !task.linked_signal_id)
+    .map((task) => {
+      const score = priorityScore(task.priority) + statusScore(task.status);
+
+      return {
+        id: `atlas-${task.id}`,
+        type: 'TASK',
+        tenantId: task.tenantId,
+        tenant_id: task.tenant_id,
+        patientName: task.patientName,
+        patient_name: task.patient_name,
+        title: task.title,
+        description: task.description,
+        severity: task.priority,
+        priority: task.priority,
+        status: task.status,
+        source: task.source,
+        riskScore: score,
+        risk_score: score,
+        nextBestAction: task.metadata?.nextBestAction || 'Review task and assign owner.',
+        next_best_action: task.metadata?.nextBestAction || 'Review task and assign owner.',
+        linkedTasks: [task],
+        linked_tasks: [task],
+        createdAt: task.createdAt,
+        created_at: task.created_at,
+        updatedAt: task.updatedAt,
+        updated_at: task.updated_at
+      };
+    });
+
+  return [...signalItems, ...unlinkedTaskItems].sort((a, b) => {
+    if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore;
+    return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  });
+}
+
+function buildDailyBoard(queue) {
+  const today = queue.slice(0, 5);
+  const overdue = queue.filter((item) => ['HIGH', 'CRITICAL'].includes(item.priority)).slice(0, 5);
+  const completed = queue.filter((item) => ['DONE', 'RESOLVED', 'COMPLETED', 'READY'].includes(item.status)).slice(0, 5);
+
+  return {
+    today,
+    overdue,
+    completed
+  };
+}
+
+function calculateSummary(queue, signals, tasks) {
+  const openStatuses = ['OPEN', 'PENDING', 'IN_PROGRESS', 'ESCALATED'];
+
+  const openSignals = signals.filter((item) => openStatuses.includes(item.status)).length;
+  const openTasks = tasks.filter((item) => openStatuses.includes(item.status)).length;
+  const criticalItems = queue.filter((item) => ['CRITICAL', 'HIGH'].includes(item.priority)).length;
+
+  return {
+    operationalStatus: 'online',
+    readinessStatus: criticalItems > 0 ? 'NEEDS_ATTENTION' : 'READY',
+    openSignals,
+    openTasks,
+    criticalItems,
+    totalSignals: signals.length,
+    totalTasks: tasks.length,
+    totalQueueItems: queue.length,
+    actionCenter: '/api/tenant/atlas/action-center',
+    patientSignals: '/api/tenant/patient-signals',
+    unifiedTasks: '/api/tenant/tasks-unified'
+  };
+}
+
+async function buildAtlasPayload(req) {
+  const tenantId = getTenantId(req);
+  const signals = await getSignals(tenantId);
+  const tasks = await getTasks(tenantId);
+  const queue = buildQueue(signals, tasks);
+  const summary = calculateSummary(queue, signals, tasks);
+  const board = buildDailyBoard(queue);
+
+  return {
+    ok: true,
+    fallback: false,
+    source: 'atlas-real-operational-aggregator',
+    phase: '25D-real-atlas-risk-queue',
+    tenantId,
+    tenant_id: tenantId,
+    module: 'ATLAS',
+    status: 'active',
+    summary,
+    queue,
+    cases: queue,
+    items: queue,
+    rows: queue,
+    signals,
+    tasks,
+    board,
+    generatedAt: nowIso(),
+    timestamp: nowIso()
+  };
+}
+
+router.get('/', async (req, res) => {
+  try {
+    const payload = await buildAtlasPayload(req);
+    return res.json(payload);
+  } catch (error) {
+    const tenantId = getTenantId(req);
+    const signals = buildDemoSignals(tenantId);
+    const tasks = buildDemoTasks(tenantId);
+    const queue = buildQueue(signals, tasks);
+    const summary = calculateSummary(queue, signals, tasks);
+
+    return res.json({
+      ok: true,
+      fallback: true,
+      source: 'atlas-safe-fallback',
+      phase: '25D-real-atlas-risk-queue',
+      tenantId,
+      tenant_id: tenantId,
+      module: 'ATLAS',
+      status: 'active',
+      summary,
+      queue,
+      cases: queue,
+      items: queue,
+      rows: queue,
+      signals,
+      tasks,
+      board: buildDailyBoard(queue),
+      warning: error.message || 'ATLAS aggregator fallback used.',
+      generatedAt: nowIso(),
+      timestamp: nowIso()
+    });
+  }
+});
+
+router.get('/summary', async (req, res) => {
+  try {
+    const payload = await buildAtlasPayload(req);
+    return res.json({
+      ok: true,
+      fallback: payload.fallback,
+      source: payload.source,
+      phase: payload.phase,
+      tenantId: payload.tenantId,
+      tenant_id: payload.tenant_id,
+      summary: payload.summary,
+      timestamp: nowIso()
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'ATLAS summary failed.'
+    });
+  }
 });
 
 router.get('/queue', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  const queue = buildQueueRows(data.rows);
-  return res.json({
-    queue,
-    total: queue.length,
-    meta: data.meta,
-    debug: data.debug
-  });
+  try {
+    const payload = await buildAtlasPayload(req);
+    return res.json({
+      ok: true,
+      fallback: payload.fallback,
+      source: payload.source,
+      phase: payload.phase,
+      tenantId: payload.tenantId,
+      tenant_id: payload.tenant_id,
+      queue: payload.queue,
+      items: payload.queue,
+      rows: payload.queue,
+      total: payload.queue.length,
+      timestamp: nowIso()
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'ATLAS queue failed.'
+    });
+  }
 });
 
-router.get('/daily', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  const daily = buildDailyRows(data.rows);
-  return res.json({
-    daily,
-    total: daily.length,
-    meta: data.meta,
-    debug: data.debug
-  });
+router.get('/daily-board', async (req, res) => {
+  try {
+    const payload = await buildAtlasPayload(req);
+    return res.json({
+      ok: true,
+      fallback: payload.fallback,
+      source: payload.source,
+      phase: payload.phase,
+      tenantId: payload.tenantId,
+      tenant_id: payload.tenant_id,
+      board: payload.board,
+      timestamp: nowIso()
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'ATLAS daily board failed.'
+    });
+  }
 });
 
 router.get('/tasks', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  const tasks = buildTaskRows(data.rows);
-  return res.json({
-    tasks,
-    total: tasks.length,
-    meta: data.meta,
-    debug: data.debug
-  });
-});
-
-router.get('/alerts', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  const alerts = buildAlertRows(data.rows);
-  return res.json({
-    alerts,
-    total: alerts.length,
-    meta: data.meta,
-    debug: data.debug
-  });
-});
-
-router.get('/auto-actions', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  const autoActions = buildAutoActionRows(data.rows);
-  return res.json({
-    autoActions,
-    total: autoActions.length,
-    meta: data.meta,
-    debug: data.debug
-  });
-});
-
-router.get('/autoactions', async (req, res) => {
-  const data = await readAtlasBasePatients();
-  const autoActions = buildAutoActionRows(data.rows);
-  return res.json({
-    autoActions,
-    total: autoActions.length,
-    meta: data.meta,
-    debug: data.debug
-  });
+  try {
+    const payload = await buildAtlasPayload(req);
+    return res.json({
+      ok: true,
+      fallback: payload.fallback,
+      source: payload.source,
+      phase: payload.phase,
+      tenantId: payload.tenantId,
+      tenant_id: payload.tenant_id,
+      tasks: payload.tasks,
+      items: payload.tasks,
+      rows: payload.tasks,
+      total: payload.tasks.length,
+      timestamp: nowIso()
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'ATLAS tasks failed.'
+    });
+  }
 });
 
 module.exports = router;

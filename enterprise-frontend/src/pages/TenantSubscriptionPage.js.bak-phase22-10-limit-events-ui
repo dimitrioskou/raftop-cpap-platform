@@ -1,0 +1,1101 @@
+import React, { useEffect, useMemo, useState } from 'react';
+
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
+
+function getTenantId() {
+  return (
+    localStorage.getItem('tenant_id') ||
+    localStorage.getItem('tenantId') ||
+    'demo-tenant'
+  );
+}
+
+function statusStyle(value, allowed) {
+  const normalized = String(value || '').toUpperCase();
+
+  if (
+    allowed === false ||
+    ['EXPIRED', 'CANCELLED', 'SUSPENDED', 'LOCKED', 'LIMIT_EXCEEDED'].includes(normalized)
+  ) {
+    return {
+      background: '#fee2e2',
+      color: '#991b1b',
+      border: '1px solid #fecaca'
+    };
+  }
+
+  if (['TRIAL', 'PAST_DUE', 'DEGRADED', 'WARNING'].includes(normalized)) {
+    return {
+      background: '#fef3c7',
+      color: '#92400e',
+      border: '1px solid #fde68a'
+    };
+  }
+
+  return {
+    background: '#dcfce7',
+    color: '#166534',
+    border: '1px solid #bbf7d0'
+  };
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+
+  try {
+    return new Date(value).toLocaleString();
+  } catch (error) {
+    return String(value);
+  }
+}
+
+function clampPercent(value) {
+  const parsed = Number(value || 0);
+
+  if (!Number.isFinite(parsed)) return 0;
+  if (parsed < 0) return 0;
+  if (parsed > 100) return 100;
+
+  return parsed;
+}
+
+function DetailCard({ label, value, tone }) {
+  const style =
+    tone === 'danger'
+      ? { background: '#fff1f2', border: '1px solid #fecdd3' }
+      : tone === 'warning'
+        ? { background: '#fffbeb', border: '1px solid #fde68a' }
+        : tone === 'success'
+          ? { background: '#f0fdf4', border: '1px solid #bbf7d0' }
+          : { background: '#ffffff', border: '1px solid #e2e8f0' };
+
+  return (
+    <div
+      style={{
+        ...style,
+        borderRadius: 20,
+        padding: 20,
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)'
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          color: '#64748b',
+          fontWeight: 900,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase'
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 20,
+          fontWeight: 900,
+          color: '#0f172a',
+          wordBreak: 'break-word'
+        }}
+      >
+        {value ?? '-'}
+      </div>
+    </div>
+  );
+}
+
+function EventStatusBadge({ value }) {
+  return (
+    <span
+      style={{
+        ...statusStyle(
+          value,
+          !['EXPIRED', 'SUSPENDED', 'CANCELLED'].includes(String(value || '').toUpperCase())
+        ),
+        borderRadius: 999,
+        padding: '5px 10px',
+        fontSize: 12,
+        fontWeight: 900
+      }}
+    >
+      {value || 'UNKNOWN'}
+    </span>
+  );
+}
+
+function UsageLimitCard({ title, limit }) {
+  const state = String(limit?.state || 'UNKNOWN').toUpperCase();
+  const percentage = clampPercent(limit?.percentage);
+  const exceeded = limit?.exceeded === true;
+  const warning = limit?.warning === true;
+
+  const tone = exceeded ? 'danger' : warning ? 'warning' : 'success';
+
+  const cardStyle =
+    tone === 'danger'
+      ? { background: '#fff1f2', border: '1px solid #fecdd3' }
+      : tone === 'warning'
+        ? { background: '#fffbeb', border: '1px solid #fde68a' }
+        : { background: '#f0fdf4', border: '1px solid #bbf7d0' };
+
+  const barColor =
+    tone === 'danger'
+      ? '#dc2626'
+      : tone === 'warning'
+        ? '#f59e0b'
+        : '#16a34a';
+
+  return (
+    <div
+      style={{
+        ...cardStyle,
+        borderRadius: 24,
+        padding: 24,
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)'
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 12,
+              color: '#64748b',
+              fontWeight: 900,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase'
+            }}
+          >
+            {title}
+          </div>
+
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 32,
+              fontWeight: 900,
+              color: '#0f172a'
+            }}
+          >
+            {limit?.used ?? 0} / {limit?.limit ?? 0}
+          </div>
+        </div>
+
+        <span
+          style={{
+            borderRadius: 999,
+            padding: '7px 12px',
+            fontWeight: 900,
+            fontSize: 12,
+            ...statusStyle(state, !exceeded)
+          }}
+        >
+          {state}
+        </span>
+      </div>
+
+      <div
+        style={{
+          marginTop: 18,
+          background: 'rgba(15, 23, 42, 0.10)',
+          borderRadius: 999,
+          height: 14,
+          overflow: 'hidden'
+        }}
+      >
+        <div
+          style={{
+            width: `${percentage}%`,
+            background: barColor,
+            height: '100%',
+            borderRadius: 999
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          marginTop: 12,
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          color: '#475569',
+          fontSize: 13,
+          fontWeight: 800
+        }}
+      >
+        <span>{limit?.percentage ?? 0}% used</span>
+        <span>Source: {limit?.source || 'none'}</span>
+      </div>
+    </div>
+  );
+}
+
+export default function TenantSubscriptionPage() {
+  const [state, setState] = useState({
+    loading: true,
+    guardEventsLoading: true,
+    actionLoading: '',
+    error: '',
+    guardEventsError: '',
+    payload: null,
+    guardEventsPayload: null
+  });
+
+  const [showRaw, setShowRaw] = useState(false);
+  const [showGuardRaw, setShowGuardRaw] = useState(false);
+  const [eventFilter, setEventFilter] = useState('ALL');
+
+  async function loadSubscriptionOverview() {
+    try {
+      const tenantId = getTenantId();
+
+      setState((prev) => ({
+        ...prev,
+        loading: true,
+        error: ''
+      }));
+
+      const response = await fetch(`${API_BASE}/api/tenant/subscription/overview`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'x-tenant-id': tenantId
+        }
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${response.status}`);
+      }
+
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        actionLoading: '',
+        error: '',
+        payload: json
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        actionLoading: '',
+        error: error.message || 'Failed to load subscription overview.'
+      }));
+    }
+  }
+
+  async function loadGuardEvents() {
+    try {
+      const tenantId = getTenantId();
+
+      setState((prev) => ({
+        ...prev,
+        guardEventsLoading: true,
+        guardEventsError: ''
+      }));
+
+      const response = await fetch(`${API_BASE}/api/tenant/subscription/guard-events?limit=100`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'x-tenant-id': tenantId
+        }
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${response.status}`);
+      }
+
+      setState((prev) => ({
+        ...prev,
+        guardEventsLoading: false,
+        guardEventsError: '',
+        guardEventsPayload: json
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        guardEventsLoading: false,
+        guardEventsError: error.message || 'Failed to load subscription guard events.'
+      }));
+    }
+  }
+
+  async function refreshAll() {
+    await loadSubscriptionOverview();
+    await loadGuardEvents();
+  }
+
+  async function postAction(actionPath) {
+    try {
+      const tenantId = getTenantId();
+
+      setState((prev) => ({
+        ...prev,
+        actionLoading: actionPath,
+        error: ''
+      }));
+
+      const response = await fetch(`${API_BASE}${actionPath}`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'x-tenant-id': tenantId
+        }
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${response.status}`);
+      }
+
+      await refreshAll();
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        actionLoading: '',
+        error: error.message || 'Subscription action failed.'
+      }));
+    }
+  }
+
+  async function triggerProtectedRouteForTest() {
+    try {
+      const tenantId = getTenantId();
+
+      setState((prev) => ({
+        ...prev,
+        actionLoading: 'trigger-protected-route',
+        error: ''
+      }));
+
+      await fetch(`${API_BASE}/api/tenant/closed-loop/control-summary`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'x-tenant-id': tenantId
+        }
+      });
+
+      await refreshAll();
+    } catch (error) {
+      await refreshAll();
+    } finally {
+      setState((prev) => ({
+        ...prev,
+        actionLoading: ''
+      }));
+    }
+  }
+
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
+  const subscription = state.payload?.subscription || {};
+  const access = subscription.access || {};
+  const usage = state.payload?.usage || {};
+  const limits = state.payload?.limits || {};
+  const allowed = access.isAllowed === true;
+
+  const guardStats = state.guardEventsPayload?.stats || {};
+  const guardEvents = Array.isArray(state.guardEventsPayload?.events)
+    ? state.guardEventsPayload.events
+    : [];
+
+  const visibleGuardEvents = useMemo(() => {
+    if (eventFilter === 'ALL') return guardEvents;
+
+    return guardEvents.filter((event) => {
+      const status = String(event.subscriptionStatus || '').toUpperCase();
+      const accessState = String(event.accessState || '').toUpperCase();
+
+      if (eventFilter === 'EXPIRED') return status === 'EXPIRED';
+      if (eventFilter === 'SUSPENDED') return status === 'SUSPENDED';
+      if (eventFilter === 'CANCELLED') return status === 'CANCELLED';
+      if (eventFilter === 'LOCKED') return accessState === 'LOCKED';
+
+      return true;
+    });
+  }, [guardEvents, eventFilter]);
+
+  const headerGradient = allowed
+    ? 'linear-gradient(135deg, #064e3b 0%, #047857 55%, #10b981 100%)'
+    : 'linear-gradient(135deg, #7f1d1d 0%, #b91c1c 55%, #ef4444 100%)';
+
+  const usageTone =
+    limits.usageState === 'LIMIT_EXCEEDED'
+      ? 'danger'
+      : limits.usageState === 'WARNING'
+        ? 'warning'
+        : 'success';
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#f8fafc',
+        padding: 32,
+        fontFamily: 'Arial, sans-serif',
+        color: '#0f172a'
+      }}
+    >
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <section
+          style={{
+            background: headerGradient,
+            color: '#ffffff',
+            borderRadius: 28,
+            padding: 32,
+            boxShadow: '0 20px 60px rgba(15, 23, 42, 0.20)'
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 900,
+              letterSpacing: '0.2em',
+              opacity: 0.88
+            }}
+          >
+            RAFTOP CPAP CARE Pro / SaaS Control
+          </div>
+
+          <h1 style={{ margin: '14px 0 8px', fontSize: 38, lineHeight: 1.1 }}>
+            Tenant Subscription Status
+          </h1>
+
+          <p style={{ maxWidth: 900, fontSize: 15, opacity: 0.9 }}>
+            SaaS access state, backend hard-lock status, plan usage, and blocked access event history for the current tenant.
+          </p>
+
+          <div
+            style={{
+              marginTop: 22,
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              flexWrap: 'wrap'
+            }}
+          >
+            <span
+              style={{
+                ...statusStyle(subscription.status, allowed),
+                borderRadius: 999,
+                padding: '10px 16px',
+                fontWeight: 900,
+                fontSize: 13
+              }}
+            >
+              Status: {subscription.status || 'UNKNOWN'}
+            </span>
+
+            <span
+              style={{
+                ...statusStyle(access.accessState, allowed),
+                borderRadius: 999,
+                padding: '10px 16px',
+                fontWeight: 900,
+                fontSize: 13
+              }}
+            >
+              Access: {access.accessState || 'UNKNOWN'}
+            </span>
+
+            <span
+              style={{
+                ...statusStyle(limits.usageState, limits.isWithinLimits !== false),
+                borderRadius: 999,
+                padding: '10px 16px',
+                fontWeight: 900,
+                fontSize: 13
+              }}
+            >
+              Usage: {limits.usageState || 'UNKNOWN'}
+            </span>
+
+            <button
+              onClick={refreshAll}
+              disabled={state.loading || Boolean(state.actionLoading)}
+              style={headerButton}
+            >
+              Refresh All
+            </button>
+          </div>
+        </section>
+
+        {state.loading && (
+          <div
+            style={{
+              marginTop: 24,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: 20,
+              padding: 24
+            }}
+          >
+            Loading subscription overview...
+          </div>
+        )}
+
+        {!state.loading && state.error && (
+          <div
+            style={{
+              marginTop: 24,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#991b1b',
+              borderRadius: 20,
+              padding: 24
+            }}
+          >
+            <strong>Subscription Error</strong>
+            <div style={{ marginTop: 8 }}>{state.error}</div>
+          </div>
+        )}
+
+        {!state.loading && !state.error && state.payload && (
+          <>
+            <section
+              style={{
+                marginTop: 24,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                gap: 16
+              }}
+            >
+              <DetailCard label="Tenant ID" value={state.payload.tenantId} />
+              <DetailCard label="Plan" value={subscription.plan} />
+              <DetailCard
+                label="Status"
+                value={subscription.status}
+                tone={allowed ? 'success' : 'danger'}
+              />
+              <DetailCard
+                label="Access"
+                value={access.accessState}
+                tone={allowed ? 'success' : 'danger'}
+              />
+              <DetailCard
+                label="Usage State"
+                value={limits.usageState}
+                tone={usageTone}
+              />
+              <DetailCard label="Seats" value={subscription.seats} />
+              <DetailCard label="Patient Limit" value={subscription.patientLimit} />
+              <DetailCard label="Period Ends" value={formatDate(subscription.currentPeriodEndsAt)} />
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24,
+                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.05)'
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Plan Usage & Limits</h2>
+              <p style={{ color: '#64748b', marginTop: 8 }}>
+                This is the SaaS usage layer: patients, seats, configured limits, and usage verdict.
+              </p>
+
+              <div
+                style={{
+                  marginTop: 18,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                  gap: 18
+                }}
+              >
+                <UsageLimitCard
+                  title="Patient Limit"
+                  limit={limits.patientLimit}
+                />
+
+                <UsageLimitCard
+                  title="Seat Limit"
+                  limit={limits.seatLimit}
+                />
+              </div>
+
+              <div
+                style={{
+                  marginTop: 18,
+                  borderRadius: 18,
+                  padding: 18,
+                  ...statusStyle(limits.usageState, limits.isWithinLimits !== false)
+                }}
+              >
+                <strong>{limits.reason || 'No usage verdict available.'}</strong>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: 8,
+                    fontSize: 13
+                  }}
+                >
+                  <span>Patients source: {usage.patients?.source || '-'}</span>
+                  <span>Users source: {usage.users?.source || '-'}</span>
+                  <span>Within limits: {limits.isWithinLimits === true ? 'Yes' : 'No'}</span>
+                  <span>Has warning: {limits.hasWarning === true ? 'Yes' : 'No'}</span>
+                </div>
+              </div>
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24,
+                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.05)'
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Access Verdict</h2>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  borderRadius: 18,
+                  padding: 18,
+                  ...statusStyle(access.accessState, allowed)
+                }}
+              >
+                <strong>{access.reason || 'No access reason available.'}</strong>
+
+                {subscription.lockedReason && (
+                  <div style={{ marginTop: 8 }}>
+                    Locked reason: {subscription.lockedReason}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24,
+                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.05)'
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Test Controls</h2>
+              <p style={{ color: '#64748b', marginTop: 8 }}>
+                Temporary controls for testing subscription hard-lock behavior.
+              </p>
+
+              <div
+                style={{
+                  marginTop: 18,
+                  display: 'flex',
+                  gap: 12,
+                  flexWrap: 'wrap'
+                }}
+              >
+                <button
+                  onClick={() => postAction('/api/tenant/subscription/force-active')}
+                  disabled={Boolean(state.actionLoading)}
+                  style={greenButton}
+                >
+                  {state.actionLoading.includes('force-active') ? 'Applying...' : 'Force Active'}
+                </button>
+
+                <button
+                  onClick={() => postAction('/api/tenant/subscription/force-expired')}
+                  disabled={Boolean(state.actionLoading)}
+                  style={orangeButton}
+                >
+                  {state.actionLoading.includes('force-expired') ? 'Applying...' : 'Force Expired'}
+                </button>
+
+                <button
+                  onClick={() => postAction('/api/tenant/subscription/force-suspended')}
+                  disabled={Boolean(state.actionLoading)}
+                  style={redButton}
+                >
+                  {state.actionLoading.includes('force-suspended') ? 'Applying...' : 'Force Suspended'}
+                </button>
+
+                <button
+                  onClick={triggerProtectedRouteForTest}
+                  disabled={Boolean(state.actionLoading)}
+                  style={darkButton}
+                >
+                  {state.actionLoading === 'trigger-protected-route'
+                    ? 'Testing...'
+                    : 'Trigger Protected Route'}
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  color: '#1e3a8a',
+                  borderRadius: 16,
+                  padding: 16,
+                  fontSize: 14
+                }}
+              >
+                Για να δημιουργηθεί guard event: πάτα <strong>Force Expired</strong> και μετά{' '}
+                <strong>Trigger Protected Route</strong>. Μετά θα εμφανιστεί στο event log από κάτω.
+              </div>
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                gap: 16
+              }}
+            >
+              <DetailCard
+                label="Guard Event Types"
+                value={guardStats.totalEventTypes}
+                tone={Number(guardStats.totalEventTypes || 0) > 0 ? 'warning' : 'success'}
+              />
+              <DetailCard
+                label="Guard Occurrences"
+                value={guardStats.totalOccurrences}
+                tone={Number(guardStats.totalOccurrences || 0) > 0 ? 'warning' : 'success'}
+              />
+              <DetailCard
+                label="Expired Event Types"
+                value={guardStats.expiredEventTypes}
+                tone={Number(guardStats.expiredEventTypes || 0) > 0 ? 'warning' : 'success'}
+              />
+              <DetailCard
+                label="Suspended Event Types"
+                value={guardStats.suspendedEventTypes}
+                tone={Number(guardStats.suspendedEventTypes || 0) > 0 ? 'danger' : 'success'}
+              />
+              <DetailCard
+                label="Cancelled Event Types"
+                value={guardStats.cancelledEventTypes}
+                tone={Number(guardStats.cancelledEventTypes || 0) > 0 ? 'danger' : 'success'}
+              />
+              <DetailCard
+                label="Last Guard Event"
+                value={formatDate(guardStats.lastSeenAt)}
+              />
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24,
+                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.05)'
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 16,
+                  alignItems: 'center',
+                  flexWrap: 'wrap'
+                }}
+              >
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 24 }}>Subscription Guard Events</h2>
+                  <p style={{ color: '#64748b', marginTop: 8 }}>
+                    Deduplicated history of backend protected-route blocks caused by subscription status.
+                  </p>
+                </div>
+
+                <select
+                  value={eventFilter}
+                  onChange={(event) => setEventFilter(event.target.value)}
+                  style={{
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 12,
+                    padding: '10px 12px',
+                    fontWeight: 800,
+                    background: '#ffffff',
+                    color: '#0f172a'
+                  }}
+                >
+                  <option value="ALL">All events</option>
+                  <option value="EXPIRED">Expired</option>
+                  <option value="SUSPENDED">Suspended</option>
+                  <option value="CANCELLED">Cancelled</option>
+                  <option value="LOCKED">Locked access</option>
+                </select>
+              </div>
+
+              {state.guardEventsLoading ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 18,
+                    padding: 18
+                  }}
+                >
+                  Loading guard events...
+                </div>
+              ) : state.guardEventsError ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    color: '#991b1b',
+                    borderRadius: 18,
+                    padding: 18
+                  }}
+                >
+                  {state.guardEventsError}
+                </div>
+              ) : visibleGuardEvents.length === 0 ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    color: '#166534',
+                    borderRadius: 18,
+                    padding: 18,
+                    fontWeight: 900
+                  }}
+                >
+                  No subscription guard events match this filter.
+                </div>
+              ) : (
+                <div style={{ marginTop: 16, overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                        <th style={th}>Status</th>
+                        <th style={th}>Access</th>
+                        <th style={th}>Method</th>
+                        <th style={th}>Path</th>
+                        <th style={th}>Occurrences</th>
+                        <th style={th}>Last Blocked</th>
+                        <th style={th}>Reason</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {visibleGuardEvents.map((event) => (
+                        <tr key={event.id}>
+                          <td style={td}>
+                            <EventStatusBadge value={event.subscriptionStatus} />
+                          </td>
+                          <td style={td}>{event.accessState || '-'}</td>
+                          <td style={td}>{event.method || '-'}</td>
+                          <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>
+                            {event.path || '-'}
+                          </td>
+                          <td style={td}>{event.occurrenceCount || 1}</td>
+                          <td style={td}>{formatDate(event.lastBlockedAt || event.lastSeenAt)}</td>
+                          <td style={td}>{event.reason || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowGuardRaw(!showGuardRaw)}
+                style={{
+                  marginTop: 18,
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  border: 0,
+                  padding: '10px 16px',
+                  borderRadius: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer'
+                }}
+              >
+                {showGuardRaw ? 'Hide Guard Events JSON' : 'Show Guard Events JSON'}
+              </button>
+
+              {showGuardRaw && (
+                <pre
+                  style={{
+                    marginTop: 16,
+                    background: '#020617',
+                    color: '#e2e8f0',
+                    padding: 18,
+                    borderRadius: 16,
+                    overflow: 'auto',
+                    maxHeight: 520,
+                    fontSize: 12
+                  }}
+                >
+                  {JSON.stringify(state.guardEventsPayload, null, 2)}
+                </pre>
+              )}
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Subscription Metadata</h2>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                  gap: 12,
+                  color: '#475569'
+                }}
+              >
+                <span>Subscription ID: {subscription.id || '-'}</span>
+                <span>Billing Email: {subscription.billingEmail || '-'}</span>
+                <span>Stripe Customer: {subscription.stripeCustomerId || '-'}</span>
+                <span>Stripe Subscription: {subscription.stripeSubscriptionId || '-'}</span>
+                <span>Created: {formatDate(subscription.createdAt)}</span>
+                <span>Updated: {formatDate(subscription.updatedAt)}</span>
+              </div>
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Debug Payload</h2>
+
+              <button
+                onClick={() => setShowRaw(!showRaw)}
+                style={{
+                  marginTop: 14,
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  border: 0,
+                  padding: '10px 16px',
+                  borderRadius: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer'
+                }}
+              >
+                {showRaw ? 'Hide JSON' : 'Show JSON'}
+              </button>
+
+              {showRaw && (
+                <pre
+                  style={{
+                    marginTop: 16,
+                    background: '#020617',
+                    color: '#e2e8f0',
+                    padding: 18,
+                    borderRadius: 16,
+                    overflow: 'auto',
+                    maxHeight: 520,
+                    fontSize: 12
+                  }}
+                >
+                  {JSON.stringify(state.payload, null, 2)}
+                </pre>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const headerButton = {
+  border: '1px solid rgba(255,255,255,0.35)',
+  background: 'rgba(255,255,255,0.14)',
+  color: '#ffffff',
+  padding: '10px 16px',
+  borderRadius: 14,
+  fontWeight: 900,
+  cursor: 'pointer'
+};
+
+const baseButton = {
+  border: 0,
+  color: '#ffffff',
+  padding: '11px 16px',
+  borderRadius: 14,
+  fontWeight: 900,
+  cursor: 'pointer'
+};
+
+const greenButton = {
+  ...baseButton,
+  background: '#047857'
+};
+
+const orangeButton = {
+  ...baseButton,
+  background: '#ea580c'
+};
+
+const redButton = {
+  ...baseButton,
+  background: '#b91c1c'
+};
+
+const darkButton = {
+  ...baseButton,
+  background: '#0f172a'
+};
+
+const th = {
+  textAlign: 'left',
+  padding: 12,
+  borderBottom: '1px solid #e2e8f0',
+  color: '#475569',
+  fontSize: 12,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em'
+};
+
+const td = {
+  padding: 12,
+  borderBottom: '1px solid #e2e8f0',
+  color: '#334155',
+  verticalAlign: 'top'
+};

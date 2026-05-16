@@ -1,0 +1,153 @@
+const express = require('express');
+
+const {
+  getAllTenantSubscriptions,
+  getTenantSubscriptionByTenantId,
+  createTenantSubscription,
+  updateTenantSubscriptionByTenantId,
+  forceTenantSubscriptionStatus
+} = require('../../services/superAdminTenantSubscriptionsService');
+
+const router = express.Router();
+
+router.get('/', async (req, res) => {
+  try {
+    const payload = await getAllTenantSubscriptions();
+    return res.json(payload);
+  } catch (error) {
+    console.error('[super-admin subscriptions list] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_SUBSCRIPTIONS_LIST_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/', async (req, res) => {
+  try {
+    const payload = await createTenantSubscription(req.body || {});
+
+    if (!payload.ok) {
+      const statusCode = payload.error === 'TENANT_ALREADY_EXISTS' ? 409 : 400;
+      return res.status(statusCode).json(payload);
+    }
+
+    return res.status(201).json(payload);
+  } catch (error) {
+    console.error('[super-admin subscription create] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_SUBSCRIPTION_CREATE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.get('/:tenantId', async (req, res) => {
+  try {
+    const payload = await getTenantSubscriptionByTenantId(req.params.tenantId);
+
+    if (!payload.ok) {
+      return res.status(404).json(payload);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('[super-admin subscription detail] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_SUBSCRIPTION_DETAIL_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.patch('/:tenantId', async (req, res) => {
+  try {
+    const payload = await updateTenantSubscriptionByTenantId(
+      req.params.tenantId,
+      req.body || {}
+    );
+
+    if (!payload.ok) {
+      return res.status(404).json(payload);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('[super-admin subscription update] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_SUBSCRIPTION_UPDATE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/:tenantId/force-active', async (req, res) => {
+  try {
+    const payload = await forceTenantSubscriptionStatus(req.params.tenantId, 'ACTIVE');
+
+    if (!payload.ok) {
+      return res.status(404).json(payload);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_FORCE_ACTIVE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/:tenantId/force-expired', async (req, res) => {
+  try {
+    const payload = await forceTenantSubscriptionStatus(req.params.tenantId, 'EXPIRED');
+
+    if (!payload.ok) {
+      return res.status(404).json(payload);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_FORCE_EXPIRED_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/:tenantId/force-suspended', async (req, res) => {
+  try {
+    const payload = await forceTenantSubscriptionStatus(req.params.tenantId, 'SUSPENDED');
+
+    if (!payload.ok) {
+      return res.status(404).json(payload);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUPER_ADMIN_FORCE_SUSPENDED_FAILED',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;

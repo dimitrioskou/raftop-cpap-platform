@@ -1,0 +1,659 @@
+import React, { useEffect, useMemo, useState } from 'react';
+
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
+
+function getAuthToken() {
+  return (
+    localStorage.getItem('raftop_auth_token') ||
+    localStorage.getItem('token') ||
+    ''
+  );
+}
+
+function getStatusBadge(status) {
+  const normalized = String(status || '').toUpperCase();
+
+  if (normalized === 'READY' || normalized === 'PASS' || normalized === 'RESOLVED') {
+    return {
+      label: status || 'READY',
+      className: 'bg-emerald-100 text-emerald-800 border-emerald-200'
+    };
+  }
+
+  if (
+    normalized === 'NEEDS_ATTENTION' ||
+    normalized === 'WARN' ||
+    normalized === 'WARNING' ||
+    normalized === 'PARTIAL'
+  ) {
+    return {
+      label: status || 'NEEDS ATTENTION',
+      className: 'bg-amber-100 text-amber-800 border-amber-200'
+    };
+  }
+
+  if (
+    normalized === 'BLOCKED' ||
+    normalized === 'FAIL' ||
+    normalized === 'FAILED' ||
+    normalized === 'CRITICAL'
+  ) {
+    return {
+      label: status || 'BLOCKED',
+      className: 'bg-red-100 text-red-800 border-red-200'
+    };
+  }
+
+  return {
+    label: status || 'UNKNOWN',
+    className: 'bg-slate-100 text-slate-700 border-slate-200'
+  };
+}
+
+function getPriorityBadge(priority) {
+  const normalized = String(priority || '').toUpperCase();
+
+  if (normalized === 'HIGH' || normalized === 'CRITICAL') {
+    return 'bg-red-100 text-red-800 border-red-200';
+  }
+
+  if (normalized === 'MEDIUM') {
+    return 'bg-amber-100 text-amber-800 border-amber-200';
+  }
+
+  if (normalized === 'LOW') {
+    return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+  }
+
+  return 'bg-slate-100 text-slate-700 border-slate-200';
+}
+
+function numberValue(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizePayload(payload) {
+  const rawSummary =
+    payload?.summary ||
+    payload?.data?.summary ||
+    payload?.controlSummary ||
+    payload?.closedLoopControlSummary ||
+    {};
+
+  const rawMetrics =
+    payload?.metrics ||
+    payload?.data?.metrics ||
+    rawSummary?.metrics ||
+    {};
+
+  const rawBlockers =
+    payload?.blockers ||
+    payload?.data?.blockers ||
+    rawSummary?.blockers ||
+    [];
+
+  const rawNextBestActions =
+    payload?.nextBestActions ||
+    payload?.next_best_actions ||
+    payload?.data?.nextBestActions ||
+    payload?.data?.next_best_actions ||
+    rawSummary?.nextBestActions ||
+    rawSummary?.next_best_actions ||
+    [];
+
+  const readinessStatus =
+    payload?.readinessStatus ||
+    payload?.readiness_status ||
+    rawSummary?.readinessStatus ||
+    rawSummary?.readiness_status ||
+    rawMetrics?.readinessStatus ||
+    'UNKNOWN';
+
+  const metrics = {
+    totalSignals: numberValue(
+      rawMetrics.totalSignals ??
+        rawMetrics.total_signals ??
+        rawSummary.totalSignals ??
+        rawSummary.total_signals
+    ),
+    openSignals: numberValue(
+      rawMetrics.openSignals ??
+        rawMetrics.open_signals ??
+        rawSummary.openSignals ??
+        rawSummary.open_signals
+    ),
+    criticalSignals: numberValue(
+      rawMetrics.criticalSignals ??
+        rawMetrics.critical_signals ??
+        rawSummary.criticalSignals ??
+        rawSummary.critical_signals
+    ),
+    totalVerifications: numberValue(
+      rawMetrics.totalVerifications ??
+        rawMetrics.total_verifications ??
+        rawSummary.totalVerifications ??
+        rawSummary.total_verifications
+    ),
+    passedVerifications: numberValue(
+      rawMetrics.passedVerifications ??
+        rawMetrics.passed_verifications ??
+        rawSummary.passedVerifications ??
+        rawSummary.passed_verifications
+    ),
+    failedVerifications: numberValue(
+      rawMetrics.failedVerifications ??
+        rawMetrics.failed_verifications ??
+        rawSummary.failedVerifications ??
+        rawSummary.failed_verifications
+    ),
+    openRemediations: numberValue(
+      rawMetrics.openRemediations ??
+        rawMetrics.open_remediations ??
+        rawSummary.openRemediations ??
+        rawSummary.open_remediations
+    ),
+    resolvedRemediations: numberValue(
+      rawMetrics.resolvedRemediations ??
+        rawMetrics.resolved_remediations ??
+        rawSummary.resolvedRemediations ??
+        rawSummary.resolved_remediations
+    )
+  };
+
+  const blockers = Array.isArray(rawBlockers)
+    ? rawBlockers.map((item, index) => ({
+        id: item.id || item.blockerId || item.blocker_id || `blocker-${index + 1}`,
+        title:
+          item.title ||
+          item.name ||
+          item.reason ||
+          item.type ||
+          `Blocker ${index + 1}`,
+        description:
+          item.description ||
+          item.message ||
+          item.details ||
+          item.explanation ||
+          'No blocker description available.',
+        priority:
+          item.priority ||
+          item.severity ||
+          item.level ||
+          'MEDIUM',
+        source:
+          item.source ||
+          item.module ||
+          item.group ||
+          'closed-loop-control',
+        patientId:
+          item.patientId ||
+          item.patient_id ||
+          item.patient ||
+          null
+      }))
+    : [];
+
+  const nextBestActions = Array.isArray(rawNextBestActions)
+    ? rawNextBestActions.map((item, index) => ({
+        id: item.id || item.actionId || item.action_id || `nba-${index + 1}`,
+        title:
+          item.title ||
+          item.action ||
+          item.name ||
+          `Next Best Action ${index + 1}`,
+        description:
+          item.description ||
+          item.message ||
+          item.details ||
+          item.reason ||
+          'No action description available.',
+        priority:
+          item.priority ||
+          item.severity ||
+          'MEDIUM',
+        type:
+          item.type ||
+          item.category ||
+          item.actionType ||
+          item.action_type ||
+          'CONTROL_ACTION'
+      }))
+    : [];
+
+  return {
+    ok: payload?.ok !== false,
+    readinessStatus,
+    metrics,
+    blockers,
+    nextBestActions,
+    raw: payload
+  };
+}
+
+function MetricCard({ label, value, tone }) {
+  const toneClass =
+    tone === 'danger'
+      ? 'border-red-200 bg-red-50'
+      : tone === 'warning'
+        ? 'border-amber-200 bg-amber-50'
+        : tone === 'success'
+          ? 'border-emerald-200 bg-emerald-50'
+          : 'border-slate-200 bg-white';
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-2 text-3xl font-bold text-slate-900">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ title, description }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+      <div className="text-sm font-semibold text-slate-800">
+        {title}
+      </div>
+      <div className="mt-1 text-sm text-slate-500">
+        {description}
+      </div>
+    </div>
+  );
+}
+
+export default function TenantClosedLoopControlHubPage() {
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    payload: null
+  });
+
+  const [showRaw, setShowRaw] = useState(false);
+
+  async function loadControlHub() {
+    setState({
+      loading: true,
+      error: '',
+      payload: null
+    });
+
+    try {
+      const token = getAuthToken();
+
+      const response = await fetch(
+        `${API_BASE}/api/tenant/closed-loop/control-summary`,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          }
+        }
+      );
+
+      const text = await response.text();
+
+      let json = null;
+
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch (parseError) {
+        throw new Error(
+          `Control Hub API returned non-JSON response. Status: ${response.status}`
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          json?.message ||
+            json?.error ||
+            `Control Hub API failed with status ${response.status}`
+        );
+      }
+
+      setState({
+        loading: false,
+        error: '',
+        payload: normalizePayload(json)
+      });
+    } catch (error) {
+      setState({
+        loading: false,
+        error: error.message || 'Failed to load Closed Loop Control Hub.',
+        payload: null
+      });
+    }
+  }
+
+  useEffect(() => {
+    loadControlHub();
+  }, []);
+
+  const payload = state.payload;
+
+  const readinessBadge = useMemo(() => {
+    return getStatusBadge(payload?.readinessStatus || 'UNKNOWN');
+  }, [payload]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">
+                RAFTOP CPAP CARE Pro / ATLAS
+              </div>
+              <h1 className="mt-2 text-3xl font-bold text-slate-950">
+                Closed Loop Control Hub
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm text-slate-600">
+                Operational control layer for verification, remediation,
+                blockers, readiness and next best actions. This page is the
+                executive checkpoint before adding new features.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className={`rounded-full border px-4 py-2 text-sm font-bold ${readinessBadge.className}`}
+              >
+                Readiness: {readinessBadge.label}
+              </span>
+
+              <button
+                type="button"
+                onClick={loadControlHub}
+                className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {state.loading && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-sm font-semibold text-slate-700">
+              Loading Closed Loop Control Hub...
+            </div>
+          </div>
+        )}
+
+        {!state.loading && state.error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 shadow-sm">
+            <div className="text-sm font-bold text-red-800">
+              Control Hub API Error
+            </div>
+            <div className="mt-2 text-sm text-red-700">
+              {state.error}
+            </div>
+            <div className="mt-4 text-xs text-red-700">
+              Check backend route:
+              <span className="ml-1 font-mono">
+                /api/tenant/closed-loop/control-summary
+              </span>
+            </div>
+          </div>
+        )}
+
+        {!state.loading && !state.error && payload && (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Total Signals"
+                value={payload.metrics.totalSignals}
+              />
+              <MetricCard
+                label="Open Signals"
+                value={payload.metrics.openSignals}
+                tone={payload.metrics.openSignals > 0 ? 'warning' : 'success'}
+              />
+              <MetricCard
+                label="Critical Signals"
+                value={payload.metrics.criticalSignals}
+                tone={payload.metrics.criticalSignals > 0 ? 'danger' : 'success'}
+              />
+              <MetricCard
+                label="Open Remediations"
+                value={payload.metrics.openRemediations}
+                tone={payload.metrics.openRemediations > 0 ? 'warning' : 'success'}
+              />
+              <MetricCard
+                label="Total Verifications"
+                value={payload.metrics.totalVerifications}
+              />
+              <MetricCard
+                label="Passed Verifications"
+                value={payload.metrics.passedVerifications}
+                tone="success"
+              />
+              <MetricCard
+                label="Failed Verifications"
+                value={payload.metrics.failedVerifications}
+                tone={payload.metrics.failedVerifications > 0 ? 'danger' : 'success'}
+              />
+              <MetricCard
+                label="Resolved Remediations"
+                value={payload.metrics.resolvedRemediations}
+                tone="success"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-950">
+                      Blockers
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Problems that block operational readiness.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                    {payload.blockers.length} active
+                  </span>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  {payload.blockers.length === 0 ? (
+                    <EmptyState
+                      title="No blockers detected"
+                      description="The closed-loop control layer has no active blockers."
+                    />
+                  ) : (
+                    payload.blockers.map((blocker) => (
+                      <div
+                        key={blocker.id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-bold text-slate-950">
+                              {blocker.title}
+                            </div>
+                            <div className="mt-1 text-sm text-slate-600">
+                              {blocker.description}
+                            </div>
+                          </div>
+
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-bold ${getPriorityBadge(
+                              blocker.priority
+                            )}`}
+                          >
+                            {blocker.priority}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                          <span className="rounded-full bg-white px-3 py-1">
+                            Source: {blocker.source}
+                          </span>
+                          {blocker.patientId && (
+                            <span className="rounded-full bg-white px-3 py-1">
+                              Patient: {blocker.patientId}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-950">
+                      Next Best Actions
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Recommended actions generated by the control engine.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                    {payload.nextBestActions.length} actions
+                  </span>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  {payload.nextBestActions.length === 0 ? (
+                    <EmptyState
+                      title="No action required"
+                      description="There are no recommended next best actions right now."
+                    />
+                  ) : (
+                    payload.nextBestActions.map((action) => (
+                      <div
+                        key={action.id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-bold text-slate-950">
+                              {action.title}
+                            </div>
+                            <div className="mt-1 text-sm text-slate-600">
+                              {action.description}
+                            </div>
+                          </div>
+
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-bold ${getPriorityBadge(
+                              action.priority
+                            )}`}
+                          >
+                            {action.priority}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 text-xs text-slate-500">
+                          <span className="rounded-full bg-white px-3 py-1">
+                            Type: {action.type}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-950">
+                    Control Readiness Verdict
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Hard stop indicator for whether we can safely continue to
+                    the next implementation phase.
+                  </p>
+                </div>
+
+                <span
+                  className={`rounded-full border px-4 py-2 text-sm font-bold ${readinessBadge.className}`}
+                >
+                  {readinessBadge.label}
+                </span>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                {String(payload.readinessStatus).toUpperCase() === 'READY' && (
+                  <div>
+                    The closed-loop control layer is operationally ready.
+                    Continue only if Route Stability Audit confirms no missing
+                    routes, no 500 errors and no fallback pages.
+                  </div>
+                )}
+
+                {String(payload.readinessStatus).toUpperCase() ===
+                  'NEEDS_ATTENTION' && (
+                  <div>
+                    The system is not blocked, but there are warnings. Fix
+                    blockers or next best actions before adding risky features.
+                  </div>
+                )}
+
+                {String(payload.readinessStatus).toUpperCase() === 'BLOCKED' && (
+                  <div>
+                    The system is blocked. Do not add new features. Fix critical
+                    blockers, failed verifications or open remediations first.
+                  </div>
+                )}
+
+                {!['READY', 'NEEDS_ATTENTION', 'BLOCKED'].includes(
+                  String(payload.readinessStatus).toUpperCase()
+                ) && (
+                  <div>
+                    Readiness status is unknown. Verify backend response shape
+                    and confirm the control-summary endpoint returns stable data.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-950">
+                    Debug Payload
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Use this only while stabilizing Phase 19.46.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowRaw((value) => !value)}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  {showRaw ? 'Hide JSON' : 'Show JSON'}
+                </button>
+              </div>
+
+              {showRaw && (
+                <pre className="mt-5 max-h-[500px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100">
+                  {JSON.stringify(payload.raw, null, 2)}
+                </pre>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

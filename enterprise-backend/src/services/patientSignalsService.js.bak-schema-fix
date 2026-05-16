@@ -1,0 +1,83 @@
+const db = require('./db');
+
+async function listPatientSignals(req) {
+  const result = await db.query(`
+    SELECT
+      id,
+      patient_id,
+      patient_name,
+      signal_type,
+      title,
+      description,
+      severity,
+      status,
+      source,
+      created_at
+    FROM patient_signals
+    ORDER BY created_at DESC
+    LIMIT 50
+  `);
+
+  return {
+    ok: true,
+    fallback: false,
+    source: 'database',
+    signals: result.rows
+  };
+}
+
+async function createPatientSignal(req) {
+  const body = req.body || {};
+
+  const result = await db.query(
+    `
+    INSERT INTO patient_signals
+    (patient_id, patient_name, signal_type, title, description, severity, status, source)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    RETURNING *
+    `,
+    [
+      body.patientId,
+      body.patientName,
+      body.signalType,
+      body.title,
+      body.description,
+      body.severity || 'MEDIUM',
+      body.status || 'OPEN',
+      body.source || 'ATLAS'
+    ]
+  );
+
+  return {
+    ok: true,
+    fallback: false,
+    signal: result.rows[0]
+  };
+}
+
+async function updatePatientSignalStatus(req) {
+  const id = req.params.id;
+  const status = req.body.status;
+
+  const result = await db.query(
+    `
+    UPDATE patient_signals
+    SET status = $1
+    WHERE id = $2
+    RETURNING *
+    `,
+    [status, id]
+  );
+
+  return {
+    ok: true,
+    fallback: false,
+    signal: result.rows[0]
+  };
+}
+
+module.exports = {
+  listPatientSignals,
+  createPatientSignal,
+  updatePatientSignalStatus
+};

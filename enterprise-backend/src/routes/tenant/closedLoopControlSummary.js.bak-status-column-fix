@@ -1,0 +1,323 @@
+const express = require('express');
+const db = require('../../services/db');
+
+const router = express.Router();
+
+function getTenantId(req) {
+  return (
+    req.user?.tenant_id ||
+    req.user?.tenantId ||
+    req.headers['x-tenant-id'] ||
+    req.query.tenant_id ||
+    req.query.tenantId ||
+    'demo-tenant'
+  );
+}
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = $1
+    ) AS exists
+    `,
+    [tableName]
+  );
+
+  return result.rows[0]?.exists === true;
+}
+
+async function getPatientSignalsMetrics(tenantId) {
+  const exists = await tableExists('patient_signals');
+
+  if (!exists) {
+    return {
+      signals: [],
+      metrics: {
+        totalSignals: 0,
+        openSignals: 0,
+        criticalSignals: 0
+      }
+    };
+  }
+
+  const result = await db.query(
+    `
+    SELECT
+      id,
+      tenant_id,
+      patient_id,
+      patient_name,
+      signal_type,
+      title,
+      description,
+      severity,
+      status,
+      source,
+      metadata,
+      created_at,
+      updated_at
+    FROM patient_signals
+    WHERE tenant_id = $1
+    ORDER BY created_at DESC
+    LIMIT 200
+    `,
+    [tenantId]
+  );
+
+  const signals = result.rows.map((row) => ({
+    id: row.id,
+    tenantId: row.tenant_id,
+    patientId: row.patient_id,
+    patientName: row.patient_name,
+    signalType: row.signal_type,
+    title: row.title,
+    description: row.description,
+    severity: String(row.severity || 'MEDIUM').toUpperCase(),
+    status: String(row.status || 'OPEN').toUpperCase(),
+    source: row.source || 'database',
+    metadata: row.metadata || {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+
+  return {
+    signals,
+    metrics: {
+      totalSignals: signals.length,
+      openSignals: signals.filter((item) =>
+        ['OPEN', 'PENDING', 'LOGGED', 'IN_PROGRESS'].includes(item.status)
+      ).length,
+      criticalSignals: signals.filter((item) =>
+        ['CRITICAL', 'HIGH'].includes(item.severity)
+      ).length
+    }
+  };
+}
+
+async function getVerificationMetrics(tenantId) {
+  const exists = await tableExists('closed_loop_verifications');
+
+  if (!exists) {
+    return {
+      totalVerifications: 0,
+      passedVerifications: 0,
+      failedVerifications: 0
+    };
+  }
+
+  const result = await db.query(
+    `
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (
+        WHERE LOWER(COALESCE(status, verdict, result, '')) IN ('pass', 'passed', 'ok', 'success', 'resolved')
+      )::int AS passed,
+      COUNT(*) FILTER (
+        WHERE LOWER(COALESCE(status, verdict, result, '')) IN ('fail', 'failed', 'error', 'critical')
+      )::int AS failed
+    FROM closed_loop_verifications
+    WHERE COALESCE(tenant_id::text, $1) = $1
+    `,
+    [tenantId]
+  );
+
+  return {
+    totalVerifications: Number(result.rows[0]?.total || 0),
+    passedVerifications: Number(result.rows[0]?.passed || 0),
+    failedVerifications: Number(result.rows[0]?.failed || 0)
+  };
+}
+
+async function getRemediationMetrics(tenantId) {
+  const exists = await tableExists('closed_loop_remediations');
+
+  if (!exists) {
+    return {
+      openRemediations: 0,
+      resolvedRemediations: 0
+    };
+  }
+
+  const result = await db.query(
+    `
+    SELECT
+      COUNT(*) FILTER (
+        WHERE LOWER(COALESCE(status, 'open')) IN ('open', 'pending', 'in_progress', 'active')
+      )::int AS open,
+      COUNT(*) FILTER (
+        WHERE LOWER(COALESCE(status, '')) IN ('resolved', 'done', 'closed', 'completed')
+      )::int AS resolved
+    FROM closed_loop_remediations
+    WHERE COALESCE(tenant_id::text, $1) = $1
+    `,
+    [tenantId]
+  );
+
+  return {
+    openRemediations: Number(result.rows[0]?.open || 0),
+    resolvedRemediations: Number(result.rows[0]?.resolved || 0)
+  };
+}
+
+function buildBlockers({ signals, metrics }) {
+  const blockers = [];
+
+  const criticalSignals = signals.filter((item) =>
+    ['CRITICAL', 'HIGH'].includes(item.severity)
+  );
+
+  if (criticalSignals.length > 0) {
+    blockers.push({
+      id: 'blocker-critical-signals',
+      title: 'Critical or high priority patient signals exist',
+      description: `${criticalSignals.length} critical/high patient signal(s) require operational review.`,
+      priority: 'HIGH',
+      source: 'patient_signals'
+    });
+  }
+
+  if (metrics.failedVerifications > 0) {
+    blockers.push({
+      id: 'blocker-failed-verifications',
+      title: 'Failed closed-loop verifications exist',
+      description: `${metrics.failedVerifications} failed verification(s) must be remediated before the system is considered ready.`,
+      priority: 'HIGH',
+      source: 'closed_loop_verifications'
+    });
+  }
+
+  if (metrics.openRemediations > 0) {
+    blockers.push({
+      id: 'blocker-open-remediations',
+      title: 'Open remediations still exist',
+      description: `${metrics.openRemediations} remediation item(s) remain open.`,
+      priority: 'MEDIUM',
+      source: 'closed_loop_remediations'
+    });
+  }
+
+  return blockers;
+}
+
+function buildNextBestActions({ signals, metrics, blockers }) {
+  const actions = [];
+
+  const highSignals = signals.filter((item) =>
+    ['CRITICAL', 'HIGH'].includes(item.severity)
+  );
+
+  if (highSignals.length > 0) {
+    actions.push({
+      id: 'nba-review-critical-signals',
+      title: 'Review critical patient signals',
+      description: 'Open the ATLAS action center and prioritize high-risk patient signals first.',
+      priority: 'HIGH',
+      type: 'PATIENT_SIGNAL_REVIEW'
+    });
+  }
+
+  if (metrics.failedVerifications > 0) {
+    actions.push({
+      id: 'nba-create-remediation-tasks',
+      title: 'Create remediation tasks for failed verifications',
+      description: 'Every failed closed-loop verification must create or link to an operational task.',
+      priority: 'HIGH',
+      type: 'REMEDIATION_TASK_CREATION'
+    });
+  }
+
+  if (metrics.openRemediations > 0) {
+    actions.push({
+      id: 'nba-resolve-open-remediations',
+      title: 'Resolve open remediation items',
+      description: 'Close or escalate open remediation records before claiming operational readiness.',
+      priority: 'MEDIUM',
+      type: 'REMEDIATION_RESOLUTION'
+    });
+  }
+
+  if (blockers.length === 0) {
+    actions.push({
+      id: 'nba-ready-for-route-audit',
+      title: 'Proceed to Route Stability Audit',
+      description: 'No blocking control-loop issue was detected. Continue to Phase 20.',
+      priority: 'LOW',
+      type: 'PHASE_20_READY'
+    });
+  }
+
+  return actions;
+}
+
+function calculateReadiness(blockers, metrics) {
+  const highBlockers = blockers.filter((item) =>
+    ['HIGH', 'CRITICAL'].includes(String(item.priority || '').toUpperCase())
+  );
+
+  if (highBlockers.length > 0 || metrics.failedVerifications > 0) {
+    return 'BLOCKED';
+  }
+
+  if (blockers.length > 0 || metrics.openSignals > 0 || metrics.openRemediations > 0) {
+    return 'NEEDS_ATTENTION';
+  }
+
+  return 'READY';
+}
+
+router.get('/control-summary', async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+
+    const signalData = await getPatientSignalsMetrics(tenantId);
+    const verificationMetrics = await getVerificationMetrics(tenantId);
+    const remediationMetrics = await getRemediationMetrics(tenantId);
+
+    const metrics = {
+      ...signalData.metrics,
+      ...verificationMetrics,
+      ...remediationMetrics
+    };
+
+    const blockers = buildBlockers({
+      signals: signalData.signals,
+      metrics
+    });
+
+    const nextBestActions = buildNextBestActions({
+      signals: signalData.signals,
+      metrics,
+      blockers
+    });
+
+    const readinessStatus = calculateReadiness(blockers, metrics);
+
+    return res.json({
+      ok: true,
+      fallback: false,
+      source: 'database',
+      phase: '19.5B-control-summary-db-backed',
+      tenantId,
+      readinessStatus,
+      metrics,
+      blockers,
+      nextBestActions,
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[closed-loop control-summary] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'CONTROL_SUMMARY_DB_FAILED',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;

@@ -1,112 +1,90 @@
 const {
-  evaluateAccess,
-  getSubscriptionSnapshot
-} = require('../services/subscriptionGuardService');
+  getTenantSubscriptionStatus
+} = require('../services/tenantSubscriptionService');
 
-function blockedResponse(res, result) {
-  const isTenantBlock = result.code === 'tenant_inactive';
+const {
+  recordSubscriptionGuardBlock
+} = require('../services/tenantSubscriptionGuardEventService');
 
-  return res.status(result.httpStatus || 402).json({
-    ok: false,
-    code: result.code,
-    message: isTenantBlock
-      ? 'Tenant subscription is inactive. Payment or reactivation is required.'
-      : 'Doctor subscription is inactive. Payment or reactivation is required.',
-    reason: isTenantBlock
-      ? result.snapshot?.tenant?.reason || 'tenant_inactive'
-      : result.snapshot?.doctor?.reason || 'doctor_subscription_inactive',
-    subscription: result.snapshot
-  });
+function isGuardEnabled() {
+  return String(process.env.SUBSCRIPTION_GUARD_ENABLED || 'true').toLowerCase() === 'true';
 }
 
-function requireTenantActive(options = {}) {
-  return async (req, res, next) => {
-    try {
-      const result = await evaluateAccess(req, {
-        requireDoctorActive: false,
-        allowAdminBypass: options.allowAdminBypass !== false
-      });
+function isBypassEnabled(req) {
+  const bypassKey = process.env.SUBSCRIPTION_GUARD_BYPASS_KEY;
 
-      req.subscriptionAccess = result.snapshot;
-
-      if (!result.allowed) {
-        return blockedResponse(res, result);
-      }
-
-      return next();
-    } catch (error) {
-      return res.status(500).json({
-        ok: false,
-        code: 'subscription_guard_error',
-        message: error.message
-      });
-    }
-  };
-}
-
-function requireDoctorSubscription(options = {}) {
-  return async (req, res, next) => {
-    try {
-      const result = await evaluateAccess(req, {
-        requireDoctorActive: true,
-        allowAdminBypass: options.allowAdminBypass !== false
-      });
-
-      req.subscriptionAccess = result.snapshot;
-
-      if (!result.allowed) {
-        return blockedResponse(res, result);
-      }
-
-      return next();
-    } catch (error) {
-      return res.status(500).json({
-        ok: false,
-        code: 'subscription_guard_error',
-        message: error.message
-      });
-    }
-  };
-}
-
-async function attachSubscriptionSnapshot(req, _res, next) {
-  try {
-    req.subscriptionAccess = await getSubscriptionSnapshot(req);
-  } catch (error) {
-    req.subscriptionAccess = {
-      actor: {
-        userId: null,
-        role: 'guest',
-        tenantId: null,
-        email: null,
-        tokenPresent: false,
-        decodedTokenPresent: false
-      },
-      tenant: {
-        active: false,
-        reason: error.message,
-        table: null,
-        status: null
-      },
-      doctor: {
-        active: false,
-        reason: error.message,
-        table: null,
-        status: null,
-        endsAt: null
-      },
-      access: {
-        tenantAllowed: false,
-        doctorAllowed: false
-      }
-    };
+  if (bypassKey && req.headers['x-subscription-bypass-key'] === bypassKey) {
+    return true;
   }
 
-  return next();
+  if (String(req.headers['x-subscription-bypass'] || '').toLowerCase() === 'true') {
+    return true;
+  }
+
+  return false;
 }
 
-module.exports = {
-  attachSubscriptionSnapshot,
-  requireDoctorSubscription,
-  requireTenantActive
-};
+function isPublicTenantSubscriptionPath(req) {
+  const path = String(req.originalUrl || req.url || '');
+
+  return path.startsWith('/api/tenant/subscription');
+}
+
+async function tenantSubscriptionGuard(req, res, next) {
+  try {
+    if (!isGuardEnabled()) {
+      return next();
+    }
+
+    if (isPublicTenantSubscriptionPath(req)) {
+      return next();
+    }
+
+    if (isBypassEnabled(req)) {
+      return next();
+    }
+
+    const payload = await getTenantSubscriptionStatus(req);
+    const access = payload.subscription?.access;
+
+    if (!access?.isAllowed) {
+      let guardEvent = null;
+
+      try {
+        guardEvent = await recordSubscriptionGuardBlock({
+          req,
+          payload,
+          access
+        });
+      } catch (eventError) {
+        console.error('[tenantSubscriptionGuard] failed to record guard event:', eventError);
+      }
+
+      return res.status(402).json({
+        ok: false,
+        fallback: false,
+        error: 'SUBSCRIPTION_REQUIRED',
+        message: access?.reason || 'Tenant subscription does not allow access.',
+        phase: '22.5-subscription-guard-event-logging',
+        tenantId: payload.tenantId,
+        subscription: payload.subscription,
+        guardEvent
+      });
+    }
+
+    req.subscription = payload.subscription;
+
+    return next();
+  } catch (error) {
+    console.error('[tenantSubscriptionGuard] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUBSCRIPTION_GUARD_FAILED',
+      message: error.message
+    });
+  }
+}
+
+module.exports = tenantSubscriptionGuard;

@@ -1,0 +1,693 @@
+'use strict';
+
+const express = require('express');
+
+const router = express.Router();
+
+let cachedDb = null;
+
+function loadDb() {
+  if (cachedDb) return cachedDb;
+
+  const candidates = [
+    '../../db',
+    '../../config/db',
+    '../../database',
+    '../../database/db',
+    '../../lib/db'
+  ];
+
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      const mod = require(candidate);
+
+      if (mod && (typeof mod.query === 'function' || mod.pool || mod.default)) {
+        cachedDb = mod;
+        return cachedDb;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    `Unable to load DB in closedLoopResolution route. Last error: ${
+      lastError ? lastError.message : 'unknown'
+    }`
+  );
+}
+
+function getQueryExecutor() {
+  const db = loadDb();
+
+  if (db && typeof db.query === 'function') return db;
+  if (db && db.pool && typeof db.pool.query === 'function') return db.pool;
+  if (db && db.default && typeof db.default.query === 'function') return db.default;
+  if (db && db.default && db.default.pool && typeof db.default.pool.query === 'function') {
+    return db.default.pool;
+  }
+
+  throw new Error('DB module loaded, but no query executor was found.');
+}
+
+async function query(text, params = []) {
+  const executor = getQueryExecutor();
+  return executor.query(text, params);
+}
+
+function safeString(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function firstValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+
+  return null;
+}
+
+function parseJsonObject(value) {
+  if (!value) return {};
+
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === 'object') {
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.rows)) return value.rows;
+    if (Array.isArray(value.history)) return value.history;
+    if (Array.isArray(value.checks)) return value.checks;
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.items)) return parsed.items;
+      if (parsed && Array.isArray(parsed.rows)) return parsed.rows;
+      if (parsed && Array.isArray(parsed.history)) return parsed.history;
+      if (parsed && Array.isArray(parsed.checks)) return parsed.checks;
+
+      return [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function isTerminalTaskStatus(status) {
+  const value = safeString(status).toLowerCase();
+
+  return [
+    'done',
+    'resolved',
+    'completed',
+    'complete',
+    'closed',
+    'fixed'
+  ].includes(value);
+}
+
+function normalizeResolutionStatus(status) {
+  const value = safeString(status).toLowerCase();
+
+  if (['resolved', 'closed', 'completed', 'done', 'fixed'].includes(value)) return 'resolved';
+  if (['missing_task', 'task_missing'].includes(value)) return 'missing_task';
+  if (['not_required'].includes(value)) return 'not_required';
+  if (['open', 'pending', 'in_progress', 'active'].includes(value)) return 'open';
+
+  return value || 'open';
+}
+
+async function ensureTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS closed_loop_verifications (
+      id text PRIMARY KEY,
+      tenant_id text DEFAULT '1',
+      task_id text,
+      signal_id text,
+      source_action_id text,
+      verdict text NOT NULL DEFAULT 'unknown',
+      passed_count integer DEFAULT 0,
+      warning_count integer DEFAULT 0,
+      failed_count integer DEFAULT 0,
+      checks jsonb DEFAULT '[]'::jsonb,
+      evidence jsonb DEFAULT '{}'::jsonb,
+      query_params jsonb DEFAULT '{}'::jsonb,
+      task_snapshot jsonb DEFAULT '{}'::jsonb,
+      signal_snapshot jsonb DEFAULT '{}'::jsonb,
+      phase text DEFAULT '19.40-remediation-resolution-sync',
+      created_at timestamp with time zone DEFAULT now()
+    )
+  `);
+
+  await query(`
+    ALTER TABLE closed_loop_verifications
+      ADD COLUMN IF NOT EXISTS tenant_id text DEFAULT '1',
+      ADD COLUMN IF NOT EXISTS task_id text,
+      ADD COLUMN IF NOT EXISTS signal_id text,
+      ADD COLUMN IF NOT EXISTS source_action_id text,
+      ADD COLUMN IF NOT EXISTS verdict text NOT NULL DEFAULT 'unknown',
+      ADD COLUMN IF NOT EXISTS passed_count integer DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS warning_count integer DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS failed_count integer DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS checks jsonb DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS evidence jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS query_params jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS task_snapshot jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS signal_snapshot jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS phase text DEFAULT '19.40-remediation-resolution-sync',
+      ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS remediation_status text DEFAULT 'not_started',
+      ADD COLUMN IF NOT EXISTS remediation_task_id text,
+      ADD COLUMN IF NOT EXISTS remediation_created_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS remediation_last_run_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS remediation_note text,
+      ADD COLUMN IF NOT EXISTS remediation_payload jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS remediation_resolution_status text DEFAULT 'open',
+      ADD COLUMN IF NOT EXISTS remediation_resolved_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS remediation_resolution_last_sync_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS remediation_resolution_note text,
+      ADD COLUMN IF NOT EXISTS remediation_resolution_payload jsonb DEFAULT '{}'::jsonb
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS atlas_tasks (
+      id text PRIMARY KEY,
+      tenant_id text NOT NULL DEFAULT '1',
+      case_id text,
+      patient_name text,
+      title text,
+      owner text,
+      priority text DEFAULT 'medium',
+      status text DEFAULT 'open',
+      due_at timestamp with time zone,
+      action_group_name text,
+      created_at timestamp with time zone DEFAULT now(),
+      updated_at timestamp with time zone DEFAULT now()
+    )
+  `);
+
+  await query(`
+    ALTER TABLE atlas_tasks
+      ADD COLUMN IF NOT EXISTS description text,
+      ADD COLUMN IF NOT EXISTS patient_email text,
+      ADD COLUMN IF NOT EXISTS linked_signal_id text,
+      ADD COLUMN IF NOT EXISTS signal_id text,
+      ADD COLUMN IF NOT EXISTS atlas_signal_id text,
+      ADD COLUMN IF NOT EXISTS source_type text,
+      ADD COLUMN IF NOT EXISTS source text,
+      ADD COLUMN IF NOT EXISTS module text,
+      ADD COLUMN IF NOT EXISTS action_type text,
+      ADD COLUMN IF NOT EXISTS task_type text,
+      ADD COLUMN IF NOT EXISTS source_action_id text,
+      ADD COLUMN IF NOT EXISTS source_ref text,
+      ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now()
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_closed_loop_verifications_resolution_status
+    ON closed_loop_verifications (remediation_resolution_status)
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_closed_loop_verifications_resolution_task_id
+    ON closed_loop_verifications (remediation_task_id)
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_atlas_tasks_resolution_source_ref
+    ON atlas_tasks (source_ref)
+  `);
+}
+
+function normalizeTask(row = {}) {
+  return {
+    ...row,
+    id: row.id,
+    taskId: row.id,
+    task_id: row.id,
+    title: row.title || 'Untitled task',
+    status: row.status || 'open',
+    priority: row.priority || 'medium',
+    sourceRef: row.source_ref,
+    source_ref: row.source_ref,
+    sourceType: row.source_type,
+    source_type: row.source_type,
+    createdAt: row.created_at,
+    created_at: row.created_at,
+    updatedAt: row.updated_at,
+    updated_at: row.updated_at,
+    metadata: parseJsonObject(row.metadata)
+  };
+}
+
+function normalizeVerificationRecord(row = {}) {
+  return {
+    ...row,
+
+    id: row.id,
+
+    tenantId: row.tenant_id,
+    tenant_id: row.tenant_id,
+
+    taskId: row.task_id,
+    task_id: row.task_id,
+
+    signalId: row.signal_id,
+    signal_id: row.signal_id,
+
+    sourceActionId: row.source_action_id,
+    source_action_id: row.source_action_id,
+
+    verdict: row.verdict || 'unknown',
+
+    checks: parseJsonArray(row.checks),
+    evidence: parseJsonObject(row.evidence),
+    queryParams: parseJsonObject(row.query_params),
+    query_params: parseJsonObject(row.query_params),
+    taskSnapshot: parseJsonObject(row.task_snapshot),
+    task_snapshot: parseJsonObject(row.task_snapshot),
+    signalSnapshot: parseJsonObject(row.signal_snapshot),
+    signal_snapshot: parseJsonObject(row.signal_snapshot),
+
+    remediationStatus: row.remediation_status || 'not_started',
+    remediation_status: row.remediation_status || 'not_started',
+
+    remediationTaskId: row.remediation_task_id,
+    remediation_task_id: row.remediation_task_id,
+
+    remediationCreatedAt: row.remediation_created_at,
+    remediation_created_at: row.remediation_created_at,
+
+    remediationLastRunAt: row.remediation_last_run_at,
+    remediation_last_run_at: row.remediation_last_run_at,
+
+    remediationNote: row.remediation_note,
+    remediation_note: row.remediation_note,
+
+    remediationPayload: parseJsonObject(row.remediation_payload),
+    remediation_payload: parseJsonObject(row.remediation_payload),
+
+    remediationResolutionStatus: row.remediation_resolution_status || 'open',
+    remediation_resolution_status: row.remediation_resolution_status || 'open',
+
+    remediationResolvedAt: row.remediation_resolved_at,
+    remediation_resolved_at: row.remediation_resolved_at,
+
+    remediationResolutionLastSyncAt: row.remediation_resolution_last_sync_at,
+    remediation_resolution_last_sync_at: row.remediation_resolution_last_sync_at,
+
+    remediationResolutionNote: row.remediation_resolution_note,
+    remediation_resolution_note: row.remediation_resolution_note,
+
+    remediationResolutionPayload: parseJsonObject(row.remediation_resolution_payload),
+    remediation_resolution_payload: parseJsonObject(row.remediation_resolution_payload),
+
+    createdAt: row.created_at,
+    created_at: row.created_at
+  };
+}
+
+async function getVerificationRecords(queryParams = {}) {
+  await ensureTables();
+
+  const filters = [];
+  const params = [];
+
+  const verificationId = firstValue(queryParams.verificationId, queryParams.verification_id, queryParams.id);
+  const taskId = firstValue(queryParams.taskId, queryParams.task_id);
+  const signalId = firstValue(queryParams.signalId, queryParams.signal_id);
+  const resolutionStatus = firstValue(
+    queryParams.resolutionStatus,
+    queryParams.resolution_status,
+    queryParams.remediationResolutionStatus,
+    queryParams.remediation_resolution_status
+  );
+
+  filters.push(`LOWER(COALESCE(verdict::text, '')) IN ('failed', 'warning')`);
+
+  if (verificationId) {
+    params.push(safeString(verificationId));
+    filters.push(`id::text = $${params.length}::text`);
+  }
+
+  if (taskId) {
+    params.push(safeString(taskId));
+    filters.push(`
+      (
+        task_id::text = $${params.length}::text
+        OR remediation_task_id::text = $${params.length}::text
+      )
+    `);
+  }
+
+  if (signalId) {
+    params.push(safeString(signalId));
+    filters.push(`signal_id::text = $${params.length}::text`);
+  }
+
+  if (resolutionStatus) {
+    params.push(normalizeResolutionStatus(resolutionStatus));
+    filters.push(`LOWER(COALESCE(remediation_resolution_status::text, 'open')) = $${params.length}::text`);
+  }
+
+  const limitRaw = Number.parseInt(firstValue(queryParams.limit, 50), 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 250 ? limitRaw : 50;
+
+  const whereSql = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+
+  const result = await query(
+    `
+      SELECT *
+      FROM closed_loop_verifications
+      ${whereSql}
+      ORDER BY
+        CASE
+          WHEN COALESCE(remediation_resolution_status, 'open') = 'resolved' THEN 2
+          WHEN COALESCE(remediation_status, 'not_started') IN ('task_created', 'task_exists') THEN 0
+          ELSE 1
+        END ASC,
+        created_at DESC NULLS LAST
+      LIMIT ${limit}
+    `,
+    params
+  );
+
+  return (result.rows || []).map(normalizeVerificationRecord);
+}
+
+async function findRemediationTask(record) {
+  await ensureTables();
+
+  const remediationTaskId = firstValue(record.remediation_task_id, record.remediationTaskId);
+  const sourceRef = `clv:${record.id}`;
+
+  const params = [];
+  const filters = [];
+
+  if (remediationTaskId) {
+    params.push(safeString(remediationTaskId));
+    filters.push(`id::text = $${params.length}::text`);
+  }
+
+  params.push(sourceRef);
+  filters.push(`
+    (
+      source_ref::text = $${params.length}::text
+      OR source_action_id::text = $${params.length}::text
+    )
+  `);
+
+  const result = await query(
+    `
+      SELECT *
+      FROM atlas_tasks
+      WHERE ${filters.join(' OR ')}
+      ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+      LIMIT 1
+    `,
+    params
+  );
+
+  return result.rows && result.rows[0] ? normalizeTask(result.rows[0]) : null;
+}
+
+async function updateResolutionFromTask(record, task, options = {}) {
+  await ensureTables();
+
+  const nowPayload = {
+    phase: '19.40-remediation-resolution-sync',
+    mode: options.mode || 'sync',
+    verification_id: record.id,
+    remediation_task_id: task ? task.id : firstValue(record.remediation_task_id, record.remediationTaskId),
+    task_status: task ? task.status : null,
+    task_updated_at: task ? firstValue(task.updated_at, task.updatedAt) : null,
+    synced_at: new Date().toISOString()
+  };
+
+  let nextStatus = 'missing_task';
+  let note = 'No remediation task found for this closed-loop verification.';
+  let resolvedAt = null;
+
+  if (task) {
+    if (isTerminalTaskStatus(task.status)) {
+      nextStatus = 'resolved';
+      note = `Remediation task is terminal (${task.status}). Closed-loop issue marked resolved.`;
+      resolvedAt = firstValue(task.updated_at, task.updatedAt, new Date().toISOString());
+    } else {
+      nextStatus = 'open';
+      note = `Remediation task exists but is still ${task.status || 'open'}.`;
+      resolvedAt = null;
+    }
+  }
+
+  if (options.forceResolved) {
+    nextStatus = 'resolved';
+    note = options.note || 'Manually marked as resolved from closed-loop resolution endpoint.';
+    resolvedAt = new Date().toISOString();
+    nowPayload.force_resolved = true;
+  }
+
+  const result = await query(
+    `
+      UPDATE closed_loop_verifications
+      SET
+        remediation_resolution_status = $2::text,
+        remediation_resolved_at = CASE
+          WHEN $2::text = 'resolved' THEN COALESCE(remediation_resolved_at, $3::timestamp with time zone, NOW())
+          ELSE remediation_resolved_at
+        END,
+        remediation_resolution_last_sync_at = NOW(),
+        remediation_resolution_note = $4::text,
+        remediation_resolution_payload = $5::jsonb,
+        remediation_task_id = COALESCE(remediation_task_id, $6::text)
+      WHERE id::text = $1::text
+      RETURNING *
+    `,
+    [
+      record.id,
+      nextStatus,
+      resolvedAt,
+      note,
+      JSON.stringify(nowPayload),
+      task ? task.id : null
+    ]
+  );
+
+  return result.rows && result.rows[0] ? normalizeVerificationRecord(result.rows[0]) : null;
+}
+
+async function buildResolutionQueue(queryParams = {}) {
+  const records = await getVerificationRecords(queryParams);
+  const items = [];
+
+  for (const record of records) {
+    const task = await findRemediationTask(record);
+
+    items.push({
+      verification: record,
+      record,
+      remediationTask: task,
+      remediation_task: task,
+      taskStatus: task ? task.status : 'missing_task',
+      task_status: task ? task.status : 'missing_task',
+      terminal: task ? isTerminalTaskStatus(task.status) : false,
+      resolutionStatus: record.remediation_resolution_status || 'open',
+      resolution_status: record.remediation_resolution_status || 'open'
+    });
+  }
+
+  return items;
+}
+
+router.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    route: 'tenant/closedLoopResolution',
+    phase: '19.40-remediation-resolution-sync',
+    purpose: 'Sync remediation task completion back to closed_loop_verifications',
+    terminalTaskStatuses: ['done', 'resolved', 'completed', 'complete', 'closed', 'fixed'],
+    endpoints: [
+      'GET /api/tenant/closed-loop-resolution/queue',
+      'POST /api/tenant/closed-loop-resolution/sync',
+      'POST /api/tenant/closed-loop-resolution/:verificationId/resolve'
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
+
+router.get('/queue', async (req, res) => {
+  try {
+    const items = await buildResolutionQueue(req.query || {});
+
+    return res.json({
+      ok: true,
+      data: {
+        ok: true,
+        phase: '19.40-remediation-resolution-sync',
+        generatedAt: new Date().toISOString(),
+        total: items.length,
+        resolved: items.filter((item) => item.resolutionStatus === 'resolved').length,
+        open: items.filter((item) => item.resolutionStatus === 'open').length,
+        missingTask: items.filter((item) => item.taskStatus === 'missing_task').length,
+        terminalReady: items.filter((item) => item.terminal).length,
+        items,
+        queue: items,
+        rows: items,
+        debug: {
+          route: 'tenant/closedLoopResolution/queue',
+          query: req.query || {}
+        }
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'Closed loop resolution queue failed.',
+      phase: '19.40-remediation-resolution-sync'
+    });
+  }
+});
+
+router.post('/sync', async (req, res) => {
+  try {
+    const queryParams = {
+      ...(req.query || {}),
+      ...(req.body || {})
+    };
+
+    const records = await getVerificationRecords(queryParams);
+    const results = [];
+
+    for (const record of records) {
+      const task = await findRemediationTask(record);
+      const updatedRecord = await updateResolutionFromTask(record, task, {
+        mode: 'sync'
+      });
+
+      results.push({
+        verificationId: record.id,
+        verification_id: record.id,
+        task: task || null,
+        taskStatus: task ? task.status : 'missing_task',
+        task_status: task ? task.status : 'missing_task',
+        terminal: task ? isTerminalTaskStatus(task.status) : false,
+        previousResolutionStatus: record.remediation_resolution_status || 'open',
+        previous_resolution_status: record.remediation_resolution_status || 'open',
+        resolutionStatus: updatedRecord ? updatedRecord.remediation_resolution_status : 'unknown',
+        resolution_status: updatedRecord ? updatedRecord.remediation_resolution_status : 'unknown',
+        updatedRecord,
+        updated_record: updatedRecord
+      });
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        ok: true,
+        phase: '19.40-remediation-resolution-sync',
+        generatedAt: new Date().toISOString(),
+        total: results.length,
+        resolved: results.filter((item) => item.resolutionStatus === 'resolved').length,
+        open: results.filter((item) => item.resolutionStatus === 'open').length,
+        missingTask: results.filter((item) => item.taskStatus === 'missing_task').length,
+        results,
+        items: results,
+        rows: results,
+        debug: {
+          route: 'tenant/closedLoopResolution/sync',
+          query: req.query || {},
+          body: req.body || {}
+        }
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'Closed loop resolution sync failed.',
+      phase: '19.40-remediation-resolution-sync'
+    });
+  }
+});
+
+router.post('/:verificationId/resolve', async (req, res) => {
+  try {
+    const verificationId = req.params.verificationId;
+
+    const records = await getVerificationRecords({
+      verificationId,
+      limit: 1
+    });
+
+    const record = records[0];
+
+    if (!record) {
+      return res.status(404).json({
+        ok: false,
+        message: `Closed loop verification not found: ${verificationId}`,
+        phase: '19.40-remediation-resolution-sync'
+      });
+    }
+
+    const task = await findRemediationTask(record);
+
+    const updatedRecord = await updateResolutionFromTask(record, task, {
+      mode: 'manual_resolve',
+      forceResolved: true,
+      note: firstValue(
+        req.body && req.body.note,
+        'Manually marked as resolved from Closed Loop Resolution.'
+      )
+    });
+
+    return res.json({
+      ok: true,
+      data: {
+        ok: true,
+        phase: '19.40-remediation-resolution-sync',
+        generatedAt: new Date().toISOString(),
+        verificationId,
+        verification_id: verificationId,
+        task,
+        updatedRecord,
+        updated_record: updatedRecord
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'Manual closed loop resolution failed.',
+      phase: '19.40-remediation-resolution-sync'
+    });
+  }
+});
+
+module.exports = router;

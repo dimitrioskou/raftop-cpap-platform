@@ -1,0 +1,930 @@
+'use strict';
+
+const crypto = require('crypto');
+const express = require('express');
+
+const router = express.Router();
+
+let cachedDb = null;
+
+function loadDb() {
+  if (cachedDb) return cachedDb;
+
+  const candidates = [
+    '../../db',
+    '../../config/db',
+    '../../database',
+    '../../database/db',
+    '../../lib/db'
+  ];
+
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      const mod = require(candidate);
+
+      if (mod && (typeof mod.query === 'function' || mod.pool || mod.default)) {
+        cachedDb = mod;
+        return cachedDb;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    `Unable to load DB in closedLoopRemediation route. Last error: ${
+      lastError ? lastError.message : 'unknown'
+    }`
+  );
+}
+
+function getQueryExecutor() {
+  const db = loadDb();
+
+  if (db && typeof db.query === 'function') return db;
+  if (db && db.pool && typeof db.pool.query === 'function') return db.pool;
+  if (db && db.default && typeof db.default.query === 'function') return db.default;
+  if (db && db.default && db.default.pool && typeof db.default.pool.query === 'function') {
+    return db.default.pool;
+  }
+
+  throw new Error('DB module loaded, but no query executor was found.');
+}
+
+async function query(text, params = []) {
+  const executor = getQueryExecutor();
+  return executor.query(text, params);
+}
+
+function safeString(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function firstValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+
+  return null;
+}
+
+function parseJsonObject(value) {
+  if (!value) return {};
+
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === 'object') {
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.rows)) return value.rows;
+    if (Array.isArray(value.history)) return value.history;
+    if (Array.isArray(value.checks)) return value.checks;
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.items)) return parsed.items;
+      if (parsed && Array.isArray(parsed.rows)) return parsed.rows;
+      if (parsed && Array.isArray(parsed.history)) return parsed.history;
+      if (parsed && Array.isArray(parsed.checks)) return parsed.checks;
+
+      return [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function makeTaskId() {
+  return `clv-task-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+async function ensureVerificationAuditTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS closed_loop_verifications (
+      id text PRIMARY KEY,
+      tenant_id text DEFAULT '1',
+      task_id text,
+      signal_id text,
+      source_action_id text,
+      verdict text NOT NULL DEFAULT 'unknown',
+      passed_count integer DEFAULT 0,
+      warning_count integer DEFAULT 0,
+      failed_count integer DEFAULT 0,
+      checks jsonb DEFAULT '[]'::jsonb,
+      evidence jsonb DEFAULT '{}'::jsonb,
+      query_params jsonb DEFAULT '{}'::jsonb,
+      task_snapshot jsonb DEFAULT '{}'::jsonb,
+      signal_snapshot jsonb DEFAULT '{}'::jsonb,
+      phase text DEFAULT '19.38-remediation-writeback-to-audit-record',
+      created_at timestamp with time zone DEFAULT now()
+    )
+  `);
+
+  await query(`
+    ALTER TABLE closed_loop_verifications
+      ADD COLUMN IF NOT EXISTS tenant_id text DEFAULT '1',
+      ADD COLUMN IF NOT EXISTS task_id text,
+      ADD COLUMN IF NOT EXISTS signal_id text,
+      ADD COLUMN IF NOT EXISTS source_action_id text,
+      ADD COLUMN IF NOT EXISTS verdict text NOT NULL DEFAULT 'unknown',
+      ADD COLUMN IF NOT EXISTS passed_count integer DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS warning_count integer DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS failed_count integer DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS checks jsonb DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS evidence jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS query_params jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS task_snapshot jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS signal_snapshot jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS phase text DEFAULT '19.38-remediation-writeback-to-audit-record',
+      ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS remediation_status text DEFAULT 'not_started',
+      ADD COLUMN IF NOT EXISTS remediation_task_id text,
+      ADD COLUMN IF NOT EXISTS remediation_created_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS remediation_last_run_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS remediation_note text,
+      ADD COLUMN IF NOT EXISTS remediation_payload jsonb DEFAULT '{}'::jsonb
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_closed_loop_verifications_remediation_status
+    ON closed_loop_verifications (remediation_status)
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_closed_loop_verifications_remediation_task_id
+    ON closed_loop_verifications (remediation_task_id)
+  `);
+}
+
+async function ensureAtlasTasksTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS atlas_tasks (
+      id text PRIMARY KEY,
+      tenant_id text NOT NULL DEFAULT '1',
+      case_id text,
+      patient_name text,
+      title text,
+      owner text,
+      priority text DEFAULT 'medium',
+      status text DEFAULT 'open',
+      due_at timestamp with time zone,
+      action_group_name text,
+      created_at timestamp with time zone DEFAULT now(),
+      updated_at timestamp with time zone DEFAULT now()
+    )
+  `);
+
+  await query(`
+    ALTER TABLE atlas_tasks
+      ADD COLUMN IF NOT EXISTS description text,
+      ADD COLUMN IF NOT EXISTS patient_email text,
+      ADD COLUMN IF NOT EXISTS linked_signal_id text,
+      ADD COLUMN IF NOT EXISTS signal_id text,
+      ADD COLUMN IF NOT EXISTS atlas_signal_id text,
+      ADD COLUMN IF NOT EXISTS coaching_context_id text,
+      ADD COLUMN IF NOT EXISTS linked_coaching_context_id text,
+      ADD COLUMN IF NOT EXISTS patient_coaching_context_id text,
+      ADD COLUMN IF NOT EXISTS source_type text,
+      ADD COLUMN IF NOT EXISTS source text,
+      ADD COLUMN IF NOT EXISTS module text,
+      ADD COLUMN IF NOT EXISTS action_type text,
+      ADD COLUMN IF NOT EXISTS task_type text,
+      ADD COLUMN IF NOT EXISTS linked_task_id text,
+      ADD COLUMN IF NOT EXISTS source_action_id text,
+      ADD COLUMN IF NOT EXISTS source_ref text,
+      ADD COLUMN IF NOT EXISTS writeback_status text,
+      ADD COLUMN IF NOT EXISTS signal_writeback_status text,
+      ADD COLUMN IF NOT EXISTS coaching_writeback_status text,
+      ADD COLUMN IF NOT EXISTS writeback_synced_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS writeback_error text,
+      ADD COLUMN IF NOT EXISTS writeback_events jsonb DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS duplicate_group_key text,
+      ADD COLUMN IF NOT EXISTS duplicate_rank integer,
+      ADD COLUMN IF NOT EXISTS duplicate_archived_at timestamp with time zone,
+      ADD COLUMN IF NOT EXISTS duplicate_keep_reason text
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_atlas_tasks_source_ref
+    ON atlas_tasks (source_ref)
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_atlas_tasks_source_action_id
+    ON atlas_tasks (source_action_id)
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_atlas_tasks_source_type
+    ON atlas_tasks (source_type)
+  `);
+}
+
+function normalizeVerificationRecord(row = {}) {
+  return {
+    ...row,
+
+    id: row.id,
+
+    tenantId: row.tenant_id,
+    tenant_id: row.tenant_id,
+
+    taskId: row.task_id,
+    task_id: row.task_id,
+
+    signalId: row.signal_id,
+    signal_id: row.signal_id,
+
+    sourceActionId: row.source_action_id,
+    source_action_id: row.source_action_id,
+
+    verdict: row.verdict || 'unknown',
+
+    passedCount: row.passed_count || 0,
+    passed_count: row.passed_count || 0,
+
+    warningCount: row.warning_count || 0,
+    warning_count: row.warning_count || 0,
+
+    failedCount: row.failed_count || 0,
+    failed_count: row.failed_count || 0,
+
+    checks: parseJsonArray(row.checks),
+    evidence: parseJsonObject(row.evidence),
+    queryParams: parseJsonObject(row.query_params),
+    query_params: parseJsonObject(row.query_params),
+    taskSnapshot: parseJsonObject(row.task_snapshot),
+    task_snapshot: parseJsonObject(row.task_snapshot),
+    signalSnapshot: parseJsonObject(row.signal_snapshot),
+    signal_snapshot: parseJsonObject(row.signal_snapshot),
+
+    remediationStatus: row.remediation_status || 'not_started',
+    remediation_status: row.remediation_status || 'not_started',
+    remediationTaskId: row.remediation_task_id,
+    remediation_task_id: row.remediation_task_id,
+    remediationCreatedAt: row.remediation_created_at,
+    remediation_created_at: row.remediation_created_at,
+    remediationLastRunAt: row.remediation_last_run_at,
+    remediation_last_run_at: row.remediation_last_run_at,
+    remediationNote: row.remediation_note,
+    remediation_note: row.remediation_note,
+    remediationPayload: parseJsonObject(row.remediation_payload),
+    remediation_payload: parseJsonObject(row.remediation_payload),
+
+    phase: row.phase,
+
+    createdAt: row.created_at,
+    created_at: row.created_at
+  };
+}
+
+function normalizeTask(row = {}) {
+  return {
+    ...row,
+
+    id: row.id,
+    taskId: row.id,
+    task_id: row.id,
+
+    tenantId: row.tenant_id,
+    tenant_id: row.tenant_id,
+
+    title: row.title || 'Untitled task',
+    description: row.description || row.title || 'Task',
+
+    patientName: row.patient_name,
+    patient_name: row.patient_name,
+    patientEmail: row.patient_email,
+    patient_email: row.patient_email,
+
+    priority: row.priority || 'medium',
+    status: row.status || 'open',
+
+    linkedSignalId: row.linked_signal_id,
+    linked_signal_id: row.linked_signal_id,
+    signalId: row.signal_id,
+    signal_id: row.signal_id,
+    atlasSignalId: row.atlas_signal_id,
+    atlas_signal_id: row.atlas_signal_id,
+
+    sourceType: row.source_type,
+    source_type: row.source_type,
+
+    sourceActionId: row.source_action_id,
+    source_action_id: row.source_action_id,
+
+    sourceRef: row.source_ref,
+    source_ref: row.source_ref,
+
+    writebackStatus: row.writeback_status,
+    writeback_status: row.writeback_status,
+
+    metadata: parseJsonObject(row.metadata),
+
+    createdAt: row.created_at,
+    created_at: row.created_at,
+    updatedAt: row.updated_at,
+    updated_at: row.updated_at
+  };
+}
+
+function getRecordSignalId(record = {}) {
+  const evidence = parseJsonObject(record.evidence);
+  const signalSnapshot = parseJsonObject(record.signal_snapshot || record.signalSnapshot);
+  const taskSnapshot = parseJsonObject(record.task_snapshot || record.taskSnapshot);
+
+  return firstValue(
+    record.signal_id,
+    record.signalId,
+    evidence.signalId,
+    evidence.taskSignalId,
+    signalSnapshot.id,
+    signalSnapshot.signalId,
+    signalSnapshot.signal_id,
+    taskSnapshot.linked_signal_id,
+    taskSnapshot.linkedSignalId,
+    taskSnapshot.signal_id,
+    taskSnapshot.signalId,
+    taskSnapshot.atlas_signal_id,
+    taskSnapshot.atlasSignalId,
+    taskSnapshot.case_id
+  );
+}
+
+function getRecordTaskId(record = {}) {
+  const evidence = parseJsonObject(record.evidence);
+  const taskSnapshot = parseJsonObject(record.task_snapshot || record.taskSnapshot);
+
+  return firstValue(
+    record.task_id,
+    record.taskId,
+    evidence.taskId,
+    evidence.payloadTaskId,
+    taskSnapshot.id,
+    taskSnapshot.taskId,
+    taskSnapshot.task_id
+  );
+}
+
+function getRecordPatientName(record = {}) {
+  const taskSnapshot = parseJsonObject(record.task_snapshot || record.taskSnapshot);
+  const signalSnapshot = parseJsonObject(record.signal_snapshot || record.signalSnapshot);
+
+  return firstValue(
+    taskSnapshot.patient_name,
+    taskSnapshot.patientName,
+    signalSnapshot.patient_name,
+    signalSnapshot.patientName,
+    signalSnapshot.patient_email,
+    signalSnapshot.patientEmail,
+    'Closed Loop Patient'
+  );
+}
+
+function getRecordPatientEmail(record = {}) {
+  const taskSnapshot = parseJsonObject(record.task_snapshot || record.taskSnapshot);
+  const signalSnapshot = parseJsonObject(record.signal_snapshot || record.signalSnapshot);
+
+  return firstValue(
+    taskSnapshot.patient_email,
+    taskSnapshot.patientEmail,
+    signalSnapshot.patient_email,
+    signalSnapshot.patientEmail,
+    null
+  );
+}
+
+function getPriorityForVerdict(verdict = '') {
+  const value = safeString(verdict).toLowerCase();
+
+  if (value === 'failed') return 'critical';
+  if (value === 'warning') return 'warning';
+
+  return 'medium';
+}
+
+function isProblemVerdict(verdict = '') {
+  const value = safeString(verdict).toLowerCase();
+  return value === 'failed' || value === 'warning';
+}
+
+function buildProblemDescription(record = {}) {
+  const checks = parseJsonArray(record.checks);
+  const failedChecks = checks.filter((check) => check.status === 'failed');
+  const warningChecks = checks.filter((check) => check.status === 'warning');
+
+  const lines = [
+    'Closed Loop Verification remediation task.',
+    `Verification ID: ${record.id || '—'}`,
+    `Verdict: ${record.verdict || 'unknown'}`,
+    `Signal ID: ${getRecordSignalId(record) || '—'}`,
+    `Task ID: ${getRecordTaskId(record) || '—'}`,
+    `Created at: ${record.created_at || record.createdAt || '—'}`
+  ];
+
+  if (failedChecks.length) {
+    lines.push('');
+    lines.push('Failed checks:');
+    failedChecks.forEach((check) => {
+      lines.push(`- ${check.label || check.id || 'Check'}: ${check.detail || 'No detail'}`);
+    });
+  }
+
+  if (warningChecks.length) {
+    lines.push('');
+    lines.push('Warning checks:');
+    warningChecks.forEach((check) => {
+      lines.push(`- ${check.label || check.id || 'Check'}: ${check.detail || 'No detail'}`);
+    });
+  }
+
+  return lines.join('\n');
+}
+
+async function findExistingRemediationTask(recordId) {
+  await ensureAtlasTasksTable();
+
+  const sourceRef = `clv:${recordId}`;
+
+  const result = await query(
+    `
+      SELECT *
+      FROM atlas_tasks
+      WHERE
+        source_ref::text = $1::text
+        OR source_action_id::text = $1::text
+      ORDER BY created_at DESC NULLS LAST
+      LIMIT 1
+    `,
+    [sourceRef]
+  );
+
+  return result.rows && result.rows[0] ? normalizeTask(result.rows[0]) : null;
+}
+
+async function markVerificationRemediation({
+  recordId,
+  status,
+  task,
+  note,
+  payload
+}) {
+  await ensureVerificationAuditTable();
+
+  const taskId = task ? firstValue(task.id, task.taskId, task.task_id) : null;
+  const taskCreatedAt = task
+    ? firstValue(task.created_at, task.createdAt, new Date().toISOString())
+    : null;
+
+  const result = await query(
+    `
+      UPDATE closed_loop_verifications
+      SET
+        remediation_status = $2::text,
+        remediation_task_id = $3::text,
+        remediation_created_at = CASE
+          WHEN $3::text IS NOT NULL THEN COALESCE(remediation_created_at, $4::timestamp with time zone, NOW())
+          ELSE remediation_created_at
+        END,
+        remediation_last_run_at = NOW(),
+        remediation_note = $5::text,
+        remediation_payload = $6::jsonb
+      WHERE id::text = $1::text
+      RETURNING *
+    `,
+    [
+      recordId,
+      status,
+      taskId,
+      taskCreatedAt,
+      note || null,
+      JSON.stringify(payload || {})
+    ]
+  );
+
+  return result.rows && result.rows[0] ? normalizeVerificationRecord(result.rows[0]) : null;
+}
+
+async function createRemediationTask(record) {
+  await ensureAtlasTasksTable();
+  await ensureVerificationAuditTable();
+
+  const verdict = safeString(record.verdict || 'unknown').toLowerCase();
+
+  if (!isProblemVerdict(verdict)) {
+    const updatedRecord = await markVerificationRemediation({
+      recordId: record.id,
+      status: 'not_required',
+      task: null,
+      note: `No remediation required for verdict ${verdict}.`,
+      payload: {
+        phase: '19.38-remediation-writeback-to-audit-record',
+        reason: 'not_problem_verdict',
+        verdict
+      }
+    });
+
+    return {
+      created: false,
+      skipped: true,
+      reason: 'not_problem_verdict',
+      task: null,
+      verificationRecord: updatedRecord,
+      verification_record: updatedRecord
+    };
+  }
+
+  const existing = await findExistingRemediationTask(record.id);
+
+  if (existing) {
+    const updatedRecord = await markVerificationRemediation({
+      recordId: record.id,
+      status: 'task_exists',
+      task: existing,
+      note: 'Remediation task already exists. Duplicate creation skipped.',
+      payload: {
+        phase: '19.38-remediation-writeback-to-audit-record',
+        reason: 'already_exists',
+        task_id: existing.id,
+        source_ref: existing.source_ref || existing.sourceRef
+      }
+    });
+
+    return {
+      created: false,
+      skipped: true,
+      reason: 'already_exists',
+      task: existing,
+      verificationRecord: updatedRecord,
+      verification_record: updatedRecord
+    };
+  }
+
+  const sourceRef = `clv:${record.id}`;
+  const taskId = makeTaskId();
+  const signalId = getRecordSignalId(record);
+  const originalTaskId = getRecordTaskId(record);
+  const priority = getPriorityForVerdict(verdict);
+  const patientName = getRecordPatientName(record);
+  const patientEmail = getRecordPatientEmail(record);
+
+  const title =
+    verdict === 'failed'
+      ? `CRITICAL: Closed loop failed for ${signalId || originalTaskId || record.id}`
+      : `Review closed loop warning for ${signalId || originalTaskId || record.id}`;
+
+  const description = buildProblemDescription(record);
+
+  const metadata = {
+    phase: '19.38-remediation-writeback-to-audit-record',
+    remediation_type: 'closed_loop_verification',
+    verification_id: record.id,
+    original_task_id: originalTaskId || null,
+    signal_id: signalId || null,
+    verdict,
+    passed_count: record.passed_count || record.passedCount || 0,
+    warning_count: record.warning_count || record.warningCount || 0,
+    failed_count: record.failed_count || record.failedCount || 0,
+    evidence: parseJsonObject(record.evidence),
+    checks: parseJsonArray(record.checks)
+  };
+
+  const result = await query(
+    `
+      INSERT INTO atlas_tasks (
+        id,
+        tenant_id,
+        case_id,
+        patient_name,
+        patient_email,
+        title,
+        description,
+        owner,
+        priority,
+        status,
+        action_group_name,
+        linked_signal_id,
+        signal_id,
+        atlas_signal_id,
+        source_type,
+        source,
+        module,
+        action_type,
+        task_type,
+        source_action_id,
+        source_ref,
+        writeback_status,
+        metadata,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        $1::text,
+        $2::text,
+        $3::text,
+        $4::text,
+        $5::text,
+        $6::text,
+        $7::text,
+        'Operations Admin',
+        $8::text,
+        'open',
+        'CLOSED_LOOP_REMEDIATION',
+        $9::text,
+        $9::text,
+        $9::text,
+        'closed_loop_verification_remediation',
+        'closed_loop_verification',
+        'closed_loop_remediation',
+        'remediate_closed_loop',
+        'closed_loop_remediation',
+        $10::text,
+        $10::text,
+        'pending',
+        $11::jsonb,
+        NOW(),
+        NOW()
+      )
+      RETURNING *
+    `,
+    [
+      taskId,
+      safeString(firstValue(record.tenant_id, record.tenantId, '1')),
+      signalId || originalTaskId || record.id,
+      patientName,
+      patientEmail,
+      title,
+      description,
+      priority,
+      signalId || null,
+      sourceRef,
+      JSON.stringify(metadata)
+    ]
+  );
+
+  const createdTask = result.rows && result.rows[0] ? normalizeTask(result.rows[0]) : null;
+
+  const updatedRecord = await markVerificationRemediation({
+    recordId: record.id,
+    status: 'task_created',
+    task: createdTask,
+    note: 'Remediation task created and linked to closed-loop verification audit record.',
+    payload: {
+      phase: '19.38-remediation-writeback-to-audit-record',
+      reason: 'created',
+      task_id: createdTask ? createdTask.id : taskId,
+      source_ref: sourceRef
+    }
+  });
+
+  return {
+    created: true,
+    skipped: false,
+    reason: null,
+    task: createdTask,
+    verificationRecord: updatedRecord,
+    verification_record: updatedRecord
+  };
+}
+
+async function listProblemRecords(queryParams = {}) {
+  await ensureVerificationAuditTable();
+
+  const filters = [];
+  const params = [];
+
+  const signalId = firstValue(queryParams.signalId, queryParams.signal_id);
+  const taskId = firstValue(queryParams.taskId, queryParams.task_id);
+  const sourceActionId = firstValue(queryParams.sourceActionId, queryParams.source_action_id);
+  const verdict = firstValue(queryParams.verdict);
+  const remediationStatus = firstValue(queryParams.remediationStatus, queryParams.remediation_status);
+
+  if (verdict) {
+    params.push(safeString(verdict).toLowerCase());
+    filters.push(`LOWER(COALESCE(verdict::text, '')) = $${params.length}::text`);
+  } else {
+    filters.push(`LOWER(COALESCE(verdict::text, '')) IN ('failed', 'warning')`);
+  }
+
+  if (signalId) {
+    params.push(safeString(signalId));
+    filters.push(`signal_id::text = $${params.length}::text`);
+  }
+
+  if (taskId) {
+    params.push(safeString(taskId));
+    filters.push(`task_id::text = $${params.length}::text`);
+  }
+
+  if (sourceActionId) {
+    params.push(safeString(sourceActionId));
+    filters.push(`source_action_id::text = $${params.length}::text`);
+  }
+
+  if (remediationStatus) {
+    params.push(safeString(remediationStatus).toLowerCase());
+    filters.push(`LOWER(COALESCE(remediation_status::text, 'not_started')) = $${params.length}::text`);
+  }
+
+  const limitValue = Number.parseInt(firstValue(queryParams.limit, 25), 10);
+  const safeLimit = Number.isFinite(limitValue) && limitValue > 0 && limitValue <= 100 ? limitValue : 25;
+
+  const whereSql = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+
+  const result = await query(
+    `
+      SELECT *
+      FROM closed_loop_verifications
+      ${whereSql}
+      ORDER BY
+        CASE
+          WHEN verdict = 'failed' THEN 0
+          WHEN verdict = 'warning' THEN 1
+          ELSE 2
+        END ASC,
+        created_at DESC NULLS LAST
+      LIMIT ${safeLimit}
+    `,
+    params
+  );
+
+  return (result.rows || []).map(normalizeVerificationRecord);
+}
+
+async function buildRemediationQueue(queryParams = {}) {
+  const records = await listProblemRecords(queryParams);
+  const queue = [];
+
+  for (const record of records) {
+    const existingTask = await findExistingRemediationTask(record.id);
+
+    let status = existingTask ? 'task_exists' : 'needs_task';
+
+    if (existingTask && record.remediation_status === 'task_created') {
+      status = 'task_exists';
+    }
+
+    if (!existingTask && record.remediation_status === 'task_created') {
+      status = 'needs_task';
+    }
+
+    queue.push({
+      record,
+      verification: record,
+      remediationStatus: status,
+      remediation_status: status,
+      auditRemediationStatus: record.remediation_status || 'not_started',
+      audit_remediation_status: record.remediation_status || 'not_started',
+      remediationTask: existingTask,
+      remediation_task: existingTask
+    });
+  }
+
+  return queue;
+}
+
+router.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    route: 'tenant/closedLoopRemediation',
+    phase: '19.38-remediation-writeback-to-audit-record',
+    createsAtlasTasks: true,
+    writesBackToAuditRecord: true,
+    sourceType: 'closed_loop_verification_remediation',
+    auditColumns: [
+      'remediation_status',
+      'remediation_task_id',
+      'remediation_created_at',
+      'remediation_last_run_at',
+      'remediation_note',
+      'remediation_payload'
+    ],
+    endpoints: [
+      'GET /api/tenant/closed-loop-remediation/queue',
+      'POST /api/tenant/closed-loop-remediation/run'
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
+
+router.get('/queue', async (req, res) => {
+  try {
+    const queue = await buildRemediationQueue(req.query || {});
+
+    return res.json({
+      ok: true,
+      data: {
+        ok: true,
+        phase: '19.38-remediation-writeback-to-audit-record',
+        generatedAt: new Date().toISOString(),
+        total: queue.length,
+        needsTask: queue.filter((item) => item.remediationStatus === 'needs_task').length,
+        taskExists: queue.filter((item) => item.remediationStatus === 'task_exists').length,
+        auditTaskCreated: queue.filter((item) => item.auditRemediationStatus === 'task_created').length,
+        auditTaskExists: queue.filter((item) => item.auditRemediationStatus === 'task_exists').length,
+        items: queue,
+        queue,
+        rows: queue,
+        debug: {
+          route: 'tenant/closedLoopRemediation/queue',
+          query: req.query || {}
+        }
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'Closed loop remediation queue failed.',
+      phase: '19.38-remediation-writeback-to-audit-record'
+    });
+  }
+});
+
+router.post('/run', async (req, res) => {
+  try {
+    const queryParams = {
+      ...(req.query || {}),
+      ...(req.body || {})
+    };
+
+    const records = await listProblemRecords(queryParams);
+    const results = [];
+
+    for (const record of records) {
+      const outcome = await createRemediationTask(record);
+
+      results.push({
+        verificationId: record.id,
+        verification_id: record.id,
+        verdict: record.verdict,
+        signalId: getRecordSignalId(record),
+        signal_id: getRecordSignalId(record),
+        originalTaskId: getRecordTaskId(record),
+        original_task_id: getRecordTaskId(record),
+        ...outcome
+      });
+    }
+
+    const created = results.filter((item) => item.created).length;
+    const skipped = results.filter((item) => item.skipped).length;
+    const writebackUpdated = results.filter((item) => item.verificationRecord).length;
+
+    return res.json({
+      ok: true,
+      data: {
+        ok: true,
+        phase: '19.38-remediation-writeback-to-audit-record',
+        generatedAt: new Date().toISOString(),
+        total: results.length,
+        created,
+        skipped,
+        writebackUpdated,
+        writeback_updated: writebackUpdated,
+        results,
+        items: results,
+        rows: results,
+        debug: {
+          route: 'tenant/closedLoopRemediation/run',
+          query: req.query || {},
+          body: req.body || {}
+        }
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || 'Closed loop remediation run failed.',
+      phase: '19.38-remediation-writeback-to-audit-record'
+    });
+  }
+});
+
+module.exports = router;

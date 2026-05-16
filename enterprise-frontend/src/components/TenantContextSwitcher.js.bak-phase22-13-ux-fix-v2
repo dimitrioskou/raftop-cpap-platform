@@ -1,0 +1,555 @@
+import React, { useEffect, useMemo, useState } from 'react';
+
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
+
+function getCurrentTenantId() {
+  return (
+    localStorage.getItem('tenant_id') ||
+    localStorage.getItem('tenantId') ||
+    'demo-tenant'
+  );
+}
+
+function normalizeTenantId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function statusStyle(status, accessAllowed = true) {
+  const normalized = String(status || '').toUpperCase();
+
+  if (
+    accessAllowed === false ||
+    ['EXPIRED', 'SUSPENDED', 'CANCELLED', 'LOCKED', 'LIMIT_EXCEEDED'].includes(normalized)
+  ) {
+    return {
+      background: '#fee2e2',
+      color: '#991b1b',
+      border: '1px solid #fecaca'
+    };
+  }
+
+  if (['TRIAL', 'PAST_DUE', 'WARNING', 'DEGRADED'].includes(normalized)) {
+    return {
+      background: '#fef3c7',
+      color: '#92400e',
+      border: '1px solid #fde68a'
+    };
+  }
+
+  return {
+    background: '#dcfce7',
+    color: '#166534',
+    border: '1px solid #bbf7d0'
+  };
+}
+
+function TenantBadge({ label, value, tone }) {
+  const style =
+    tone === 'danger'
+      ? { background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }
+      : tone === 'warning'
+        ? { background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }
+        : tone === 'success'
+          ? { background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }
+          : { background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' };
+
+  return (
+    <span
+      style={{
+        ...style,
+        borderRadius: 999,
+        padding: '6px 10px',
+        fontSize: 12,
+        fontWeight: 900,
+        whiteSpace: 'nowrap'
+      }}
+    >
+      {label}: {value || '-'}
+    </span>
+  );
+}
+
+export default function TenantContextSwitcher() {
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    tenants: [],
+    currentTenantId: getCurrentTenantId(),
+    selectedTenantId: getCurrentTenantId(),
+    manualTenantId: ''
+  });
+
+  const [collapsed, setCollapsed] = useState(false);
+
+  async function loadTenants() {
+    try {
+      setState((prev) => ({
+        ...prev,
+        loading: true,
+        error: ''
+      }));
+
+      const response = await fetch(`${API_BASE}/api/super-admin/subscriptions`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json'
+        }
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${response.status}`);
+      }
+
+      const tenants = Array.isArray(json?.subscriptions) ? json.subscriptions : [];
+      const currentTenantId = getCurrentTenantId();
+      const currentExists = tenants.some((tenant) => tenant.tenantId === currentTenantId);
+
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: '',
+        tenants,
+        currentTenantId,
+        selectedTenantId: currentExists
+          ? currentTenantId
+          : tenants[0]?.tenantId || currentTenantId
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error:
+          error.message ||
+          'Tenant list could not be loaded. Check super admin key or backend.',
+        currentTenantId: getCurrentTenantId(),
+        selectedTenantId: getCurrentTenantId()
+      }));
+    }
+  }
+
+  useEffect(() => {
+    loadTenants();
+  }, []);
+
+  const selectedTenant = useMemo(() => {
+    return state.tenants.find((tenant) => tenant.tenantId === state.selectedTenantId) || null;
+  }, [state.tenants, state.selectedTenantId]);
+
+  const currentTenant = useMemo(() => {
+    return state.tenants.find((tenant) => tenant.tenantId === state.currentTenantId) || null;
+  }, [state.tenants, state.currentTenantId]);
+
+  const normalizedManualTenantId = normalizeTenantId(state.manualTenantId);
+  const canUseManualTenant = normalizedManualTenantId.length > 0;
+
+  function applyTenantSwitch(nextTenantId, source) {
+    const normalized = normalizeTenantId(nextTenantId);
+
+    if (!normalized) {
+      setState((prev) => ({
+        ...prev,
+        error:
+          source === 'manual'
+            ? 'Manual tenant switch needs a tenant id. Type it first or use the dropdown.'
+            : 'Select a tenant before switching.'
+      }));
+
+      return;
+    }
+
+    localStorage.setItem('tenant_id', normalized);
+    localStorage.setItem('tenantId', normalized);
+
+    window.location.reload();
+  }
+
+  function switchSelectedTenant() {
+    applyTenantSwitch(state.selectedTenantId, 'dropdown');
+  }
+
+  function switchManualTenant() {
+    applyTenantSwitch(state.manualTenantId, 'manual');
+  }
+
+  function openTenantSubscription() {
+    window.location.href = '/tenant/subscription';
+  }
+
+  function openSuperAdminSubscriptions() {
+    window.location.href = '/super-admin/subscriptions';
+  }
+
+  if (collapsed) {
+    return (
+      <div
+        style={{
+          background: '#0f172a',
+          color: '#ffffff',
+          padding: '8px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+          fontFamily: 'Arial, sans-serif',
+          fontSize: 13,
+          borderTop: '1px solid rgba(255,255,255,0.08)'
+        }}
+      >
+        <strong>Tenant Context: {state.currentTenantId}</strong>
+
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          style={smallDarkButton}
+        >
+          Show Switcher
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: '#ffffff',
+        borderBottom: '1px solid #e2e8f0',
+        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)',
+        padding: '12px 16px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#0f172a'
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1440,
+          margin: '0 auto',
+          display: 'grid',
+          gap: 12
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            alignItems: 'center',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 900,
+                letterSpacing: '0.12em',
+                color: '#2563eb',
+                textTransform: 'uppercase'
+              }}
+            >
+              Tenant Context Switcher
+            </span>
+
+            <TenantBadge
+              label="Current"
+              value={state.currentTenantId}
+              tone="success"
+            />
+
+            {currentTenant && (
+              <>
+                <TenantBadge
+                  label="Plan"
+                  value={currentTenant.plan}
+                  tone="neutral"
+                />
+                <TenantBadge
+                  label="Status"
+                  value={currentTenant.status}
+                  tone={currentTenant.access?.isAllowed === false ? 'danger' : 'success'}
+                />
+                <TenantBadge
+                  label="Access"
+                  value={currentTenant.access?.accessState}
+                  tone={currentTenant.access?.isAllowed === false ? 'danger' : 'success'}
+                />
+              </>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={loadTenants}
+              disabled={state.loading}
+              style={smallBlueButton}
+            >
+              {state.loading ? 'Loading...' : 'Refresh Tenants'}
+            </button>
+
+            <button
+              type="button"
+              onClick={openTenantSubscription}
+              style={smallGreenButton}
+            >
+              Tenant Subscription
+            </button>
+
+            <button
+              type="button"
+              onClick={openSuperAdminSubscriptions}
+              style={smallPurpleButton}
+            >
+              Super Admin Console
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              style={smallDarkButton}
+            >
+              Hide
+            </button>
+          </div>
+        </div>
+
+        {state.error && (
+          <div
+            style={{
+              background: '#fff7ed',
+              border: '1px solid #fed7aa',
+              color: '#9a3412',
+              borderRadius: 14,
+              padding: 12,
+              fontSize: 13,
+              fontWeight: 800
+            }}
+          >
+            {state.error}
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(240px, 1fr) auto minmax(240px, 1fr) auto',
+            gap: 10,
+            alignItems: 'end'
+          }}
+        >
+          <label style={inputLabel}>
+            Select existing tenant
+            <select
+              value={state.selectedTenantId}
+              onChange={(event) =>
+                setState((prev) => ({
+                  ...prev,
+                  selectedTenantId: event.target.value,
+                  error: ''
+                }))
+              }
+              style={inputStyle}
+            >
+              {state.tenants.length === 0 ? (
+                <option value={state.currentTenantId}>
+                  {state.currentTenantId}
+                </option>
+              ) : (
+                state.tenants.map((tenant) => (
+                  <option key={tenant.tenantId} value={tenant.tenantId}>
+                    {tenant.tenantId} · {tenant.plan} · {tenant.status}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={switchSelectedTenant}
+            disabled={!state.selectedTenantId}
+            style={{
+              ...mainButton,
+              opacity: !state.selectedTenantId ? 0.5 : 1,
+              cursor: !state.selectedTenantId ? 'not-allowed' : 'pointer'
+            }}
+          >
+            Switch
+          </button>
+
+          <label style={inputLabel}>
+            Manual tenant ID fallback
+            <input
+              value={state.manualTenantId}
+              onChange={(event) =>
+                setState((prev) => ({
+                  ...prev,
+                  manualTenantId: event.target.value,
+                  error: ''
+                }))
+              }
+              placeholder="type tenant id, e.g. raftopoulos-live"
+              style={inputStyle}
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={switchManualTenant}
+            disabled={!canUseManualTenant}
+            style={{
+              ...manualButton,
+              opacity: !canUseManualTenant ? 0.45 : 1,
+              cursor: !canUseManualTenant ? 'not-allowed' : 'pointer'
+            }}
+          >
+            Use Manual
+          </button>
+        </div>
+
+        {selectedTenant && (
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 16,
+              padding: 12,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 8,
+              fontSize: 13,
+              color: '#475569'
+            }}
+          >
+            <span>
+              Selected: <strong>{selectedTenant.tenantId}</strong>
+            </span>
+            <span>
+              Plan: <strong>{selectedTenant.plan}</strong>
+            </span>
+            <span>
+              Status:{' '}
+              <strong
+                style={{
+                  ...statusStyle(selectedTenant.status, selectedTenant.access?.isAllowed),
+                  borderRadius: 999,
+                  padding: '2px 8px'
+                }}
+              >
+                {selectedTenant.status}
+              </strong>
+            </span>
+            <span>
+              Patients:{' '}
+              <strong>
+                {selectedTenant.limits?.patientLimit?.used ?? 0} /{' '}
+                {selectedTenant.limits?.patientLimit?.limit ?? 0}
+              </strong>
+            </span>
+            <span>
+              Seats:{' '}
+              <strong>
+                {selectedTenant.limits?.seatLimit?.used ?? 0} /{' '}
+                {selectedTenant.limits?.seatLimit?.limit ?? 0}
+              </strong>
+            </span>
+            <span>
+              Usage: <strong>{selectedTenant.limits?.usageState || '-'}</strong>
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const inputLabel = {
+  display: 'grid',
+  gap: 6,
+  fontSize: 12,
+  fontWeight: 900,
+  color: '#334155'
+};
+
+const inputStyle = {
+  width: '100%',
+  border: '1px solid #cbd5e1',
+  borderRadius: 12,
+  padding: '10px 12px',
+  fontSize: 14,
+  fontWeight: 800,
+  color: '#0f172a',
+  background: '#ffffff'
+};
+
+const mainButton = {
+  border: 0,
+  background: '#2563eb',
+  color: '#ffffff',
+  padding: '11px 16px',
+  borderRadius: 12,
+  fontWeight: 900
+};
+
+const manualButton = {
+  border: 0,
+  background: '#0f172a',
+  color: '#ffffff',
+  padding: '11px 16px',
+  borderRadius: 12,
+  fontWeight: 900
+};
+
+const smallBlueButton = {
+  border: 0,
+  background: '#2563eb',
+  color: '#ffffff',
+  padding: '8px 12px',
+  borderRadius: 10,
+  fontWeight: 900,
+  cursor: 'pointer',
+  fontSize: 12
+};
+
+const smallGreenButton = {
+  border: 0,
+  background: '#047857',
+  color: '#ffffff',
+  padding: '8px 12px',
+  borderRadius: 10,
+  fontWeight: 900,
+  cursor: 'pointer',
+  fontSize: 12
+};
+
+const smallPurpleButton = {
+  border: 0,
+  background: '#7c3aed',
+  color: '#ffffff',
+  padding: '8px 12px',
+  borderRadius: 10,
+  fontWeight: 900,
+  cursor: 'pointer',
+  fontSize: 12
+};
+
+const smallDarkButton = {
+  border: 0,
+  background: '#111827',
+  color: '#ffffff',
+  padding: '8px 12px',
+  borderRadius: 10,
+  fontWeight: 900,
+  cursor: 'pointer',
+  fontSize: 12
+};

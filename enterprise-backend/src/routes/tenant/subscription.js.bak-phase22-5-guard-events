@@ -1,0 +1,85 @@
+const express = require('express');
+
+const {
+  getTenantSubscriptionStatus,
+  updateTenantSubscription,
+  forceSubscriptionStatus
+} = require('../../services/tenantSubscriptionService');
+
+const router = express.Router();
+
+router.get('/status', async (req, res) => {
+  try {
+    const payload = await getTenantSubscriptionStatus(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription status] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_STATUS_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.patch('/status', async (req, res) => {
+  try {
+    const payload = await updateTenantSubscription(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription update] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_UPDATE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/force-active', async (req, res) => {
+  try {
+    const payload = await forceSubscriptionStatus(req, 'ACTIVE');
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_FORCE_ACTIVE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/force-expired', async (req, res) => {
+  try {
+    const payload = await forceSubscriptionStatus(req, 'EXPIRED');
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_FORCE_EXPIRED_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/force-suspended', async (req, res) => {
+  try {
+    const payload = await forceSubscriptionStatus(req, 'SUSPENDED');
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_FORCE_SUSPENDED_FAILED',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;

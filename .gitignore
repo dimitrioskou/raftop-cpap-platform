@@ -10,3 +10,7 @@ coverage/
 Thumbs.db
 GITHUB_TOKEN.txt
 uploads/
+.env.local
+.env.production
+backups/
+node_modules/

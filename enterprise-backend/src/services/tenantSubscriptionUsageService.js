@@ -1,0 +1,350 @@
+const db = require('./db');
+
+const {
+  getTenantId,
+  getTenantSubscriptionStatus
+} = require('./tenantSubscriptionService');
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = $1
+    ) AS exists
+    `,
+    [tableName]
+  );
+
+  return result.rows[0]?.exists === true;
+}
+
+async function getColumns(tableName) {
+  const result = await db.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = $1
+    `,
+    [tableName]
+  );
+
+  return result.rows.map((row) => row.column_name);
+}
+
+function hasColumn(columns, columnName) {
+  return columns.includes(columnName);
+}
+
+async function countRowsByTenant(tableName, tenantId) {
+  const exists = await tableExists(tableName);
+
+  if (!exists) {
+    return {
+      table: tableName,
+      exists: false,
+      count: 0,
+      reason: 'TABLE_NOT_FOUND'
+    };
+  }
+
+  const columns = await getColumns(tableName);
+
+  if (!hasColumn(columns, 'tenant_id')) {
+    return {
+      table: tableName,
+      exists: true,
+      count: 0,
+      reason: 'TENANT_ID_COLUMN_NOT_FOUND'
+    };
+  }
+
+  const result = await db.query(
+    `
+    SELECT COUNT(*)::int AS count
+    FROM ${tableName}
+    WHERE tenant_id::text = $1
+    `,
+    [tenantId]
+  );
+
+  return {
+    table: tableName,
+    exists: true,
+    count: Number(result.rows[0]?.count || 0),
+    reason: 'OK'
+  };
+}
+
+async function countDistinctPatientsFromSignals(tenantId) {
+  const exists = await tableExists('patient_signals');
+
+  if (!exists) {
+    return {
+      table: 'patient_signals',
+      exists: false,
+      count: 0,
+      reason: 'TABLE_NOT_FOUND'
+    };
+  }
+
+  const columns = await getColumns('patient_signals');
+
+  if (!hasColumn(columns, 'tenant_id')) {
+    return {
+      table: 'patient_signals',
+      exists: true,
+      count: 0,
+      reason: 'TENANT_ID_COLUMN_NOT_FOUND'
+    };
+  }
+
+  if (!hasColumn(columns, 'patient_id')) {
+    return {
+      table: 'patient_signals',
+      exists: true,
+      count: 0,
+      reason: 'PATIENT_ID_COLUMN_NOT_FOUND'
+    };
+  }
+
+  const result = await db.query(
+    `
+    SELECT COUNT(DISTINCT patient_id)::int AS count
+    FROM patient_signals
+    WHERE tenant_id::text = $1
+      AND patient_id IS NOT NULL
+      AND patient_id::text <> ''
+    `,
+    [tenantId]
+  );
+
+  return {
+    table: 'patient_signals',
+    exists: true,
+    count: Number(result.rows[0]?.count || 0),
+    reason: 'OK_DISTINCT_PATIENT_ID'
+  };
+}
+
+async function countPatients(tenantId) {
+  const directPatients = await countRowsByTenant('patients', tenantId);
+
+  if (directPatients.exists && directPatients.reason === 'OK') {
+    return {
+      used: directPatients.count,
+      source: 'patients',
+      details: [directPatients]
+    };
+  }
+
+  const tenantPatients = await countRowsByTenant('tenant_patients', tenantId);
+
+  if (tenantPatients.exists && tenantPatients.reason === 'OK') {
+    return {
+      used: tenantPatients.count,
+      source: 'tenant_patients',
+      details: [directPatients, tenantPatients]
+    };
+  }
+
+  const signalPatients = await countDistinctPatientsFromSignals(tenantId);
+
+  return {
+    used: signalPatients.count,
+    source:
+      signalPatients.reason === 'OK_DISTINCT_PATIENT_ID'
+        ? 'patient_signals_distinct_patient_id'
+        : 'none',
+    details: [directPatients, tenantPatients, signalPatients]
+  };
+}
+
+async function countUsers(tenantId) {
+  const tenantUsers = await countRowsByTenant('tenant_users', tenantId);
+
+  if (tenantUsers.exists && tenantUsers.reason === 'OK') {
+    return {
+      used: tenantUsers.count,
+      source: 'tenant_users',
+      details: [tenantUsers]
+    };
+  }
+
+  const users = await countRowsByTenant('users', tenantId);
+
+  if (users.exists && users.reason === 'OK') {
+    return {
+      used: users.count,
+      source: 'users',
+      details: [tenantUsers, users]
+    };
+  }
+
+  return {
+    used: 0,
+    source: 'none',
+    details: [tenantUsers, users]
+  };
+}
+
+function calculatePercentage(used, limit) {
+  const safeUsed = Number(used || 0);
+  const safeLimit = Number(limit || 0);
+
+  if (safeLimit < 0) {
+    return 0;
+  }
+
+  if (safeLimit === 0) {
+    return safeUsed > 0 ? 100 : 0;
+  }
+
+  return Math.round((safeUsed / safeLimit) * 100);
+}
+
+function buildLimitState({ used, limit, warningThreshold = 80 }) {
+  const safeUsed = Number(used || 0);
+  const safeLimit = Number(limit || 0);
+  const percentage = calculatePercentage(safeUsed, safeLimit);
+
+  if (safeLimit < 0) {
+    return {
+      percentage,
+      state: 'NO_LIMIT_CONFIGURED',
+      exceeded: false,
+      warning: false
+    };
+  }
+
+  if (safeUsed > safeLimit) {
+    return {
+      percentage,
+      state: 'LIMIT_EXCEEDED',
+      exceeded: true,
+      warning: true
+    };
+  }
+
+  if (percentage >= warningThreshold) {
+    return {
+      percentage,
+      state: 'WARNING',
+      exceeded: false,
+      warning: true
+    };
+  }
+
+  return {
+    percentage,
+    state: 'OK',
+    exceeded: false,
+    warning: false
+  };
+}
+
+function buildPlanLimitVerdict({ subscription, patientUsage, userUsage }) {
+  const patientLimit = Number(subscription.patientLimit || 0);
+  const seatLimit = Number(subscription.seats || 0);
+
+  const patientState = buildLimitState({
+    used: patientUsage.used,
+    limit: patientLimit
+  });
+
+  const seatState = buildLimitState({
+    used: userUsage.used,
+    limit: seatLimit
+  });
+
+  const hardExceeded = patientState.exceeded || seatState.exceeded;
+  const warning = patientState.warning || seatState.warning;
+
+  let usageState = 'OK';
+  let reason = 'Usage is within subscription limits.';
+
+  if (hardExceeded) {
+    usageState = 'LIMIT_EXCEEDED';
+    reason = 'Tenant usage has exceeded one or more subscription limits.';
+  } else if (warning) {
+    usageState = 'WARNING';
+    reason = 'Tenant usage is approaching one or more subscription limits.';
+  }
+
+  return {
+    usageState,
+    reason,
+    isWithinLimits: !hardExceeded,
+    hasWarning: warning,
+    patientLimit: {
+      used: patientUsage.used,
+      limit: patientLimit,
+      source: patientUsage.source,
+      ...patientState
+    },
+    seatLimit: {
+      used: userUsage.used,
+      limit: seatLimit,
+      source: userUsage.source,
+      ...seatState
+    }
+  };
+}
+
+async function getTenantSubscriptionUsage(req) {
+  const tenantId = getTenantId(req);
+
+  const subscriptionPayload = await getTenantSubscriptionStatus(req);
+  const subscription = subscriptionPayload.subscription || {};
+
+  const patientUsage = await countPatients(tenantId);
+  const userUsage = await countUsers(tenantId);
+
+  const limits = buildPlanLimitVerdict({
+    subscription,
+    patientUsage,
+    userUsage
+  });
+
+  return {
+    ok: true,
+    fallback: false,
+    source: 'database',
+    phase: '22.7-subscription-usage-plan-limits',
+    tenantId,
+    subscription,
+    usage: {
+      patients: patientUsage,
+      users: userUsage
+    },
+    limits,
+    generatedAt: new Date().toISOString()
+  };
+}
+
+async function getTenantSubscriptionOverview(req) {
+  const subscriptionPayload = await getTenantSubscriptionStatus(req);
+  const usagePayload = await getTenantSubscriptionUsage(req);
+
+  return {
+    ok: true,
+    fallback: false,
+    source: 'database',
+    phase: '22.7-subscription-overview',
+    tenantId: subscriptionPayload.tenantId,
+    subscription: subscriptionPayload.subscription,
+    usage: usagePayload.usage,
+    limits: usagePayload.limits,
+    generatedAt: new Date().toISOString()
+  };
+}
+
+module.exports = {
+  getTenantSubscriptionUsage,
+  getTenantSubscriptionOverview,
+  buildLimitState,
+  calculatePercentage
+};

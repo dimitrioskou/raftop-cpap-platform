@@ -1,0 +1,168 @@
+const db = require('./db');
+
+async function ensureAlertTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS system_alert_events (
+      id TEXT PRIMARY KEY,
+      severity TEXT NOT NULL DEFAULT 'INFO',
+      title TEXT NOT NULL,
+      message TEXT,
+      source TEXT,
+      acknowledged BOOLEAN NOT NULL DEFAULT false,
+      acknowledged_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_system_alert_events_created_at
+    ON system_alert_events (created_at DESC);
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_system_alert_events_acknowledged
+    ON system_alert_events (acknowledged);
+  `);
+}
+
+async function storeAlerts(alerts = []) {
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return {
+      ok: true,
+      inserted: 0
+    };
+  }
+
+  await ensureAlertTable();
+
+  let inserted = 0;
+
+  for (const alert of alerts) {
+    const id = alert.id || `alert-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const result = await db.query(
+      `
+      INSERT INTO system_alert_events
+        (id, severity, title, message, source, created_at)
+      VALUES
+        ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+      `,
+      [
+        id,
+        String(alert.severity || 'INFO').toUpperCase(),
+        alert.title || 'System alert',
+        alert.message || '',
+        alert.source || 'system',
+        alert.createdAt || new Date().toISOString()
+      ]
+    );
+
+    if (result.rows.length > 0) {
+      inserted += 1;
+    }
+  }
+
+  return {
+    ok: true,
+    inserted
+  };
+}
+
+async function getRecentAlerts(limit = 50) {
+  await ensureAlertTable();
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+
+  const result = await db.query(
+    `
+    SELECT
+      id,
+      severity,
+      title,
+      message,
+      source,
+      acknowledged,
+      acknowledged_at,
+      created_at
+    FROM system_alert_events
+    ORDER BY created_at DESC
+    LIMIT $1
+    `,
+    [safeLimit]
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    severity: row.severity,
+    title: row.title,
+    message: row.message,
+    source: row.source,
+    acknowledged: row.acknowledged,
+    acknowledgedAt: row.acknowledged_at,
+    createdAt: row.created_at
+  }));
+}
+
+async function getAlertStats() {
+  await ensureAlertTable();
+
+  const result = await db.query(`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE acknowledged = false)::int AS open,
+      COUNT(*) FILTER (WHERE acknowledged = true)::int AS acknowledged,
+      COUNT(*) FILTER (WHERE severity = 'CRITICAL' AND acknowledged = false)::int AS critical_open,
+      COUNT(*) FILTER (WHERE severity = 'HIGH' AND acknowledged = false)::int AS high_open,
+      COUNT(*) FILTER (WHERE severity = 'MEDIUM' AND acknowledged = false)::int AS medium_open,
+      COUNT(*) FILTER (WHERE severity = 'LOW' AND acknowledged = false)::int AS low_open
+    FROM system_alert_events
+  `);
+
+  return {
+    total: Number(result.rows[0]?.total || 0),
+    open: Number(result.rows[0]?.open || 0),
+    acknowledged: Number(result.rows[0]?.acknowledged || 0),
+    criticalOpen: Number(result.rows[0]?.critical_open || 0),
+    highOpen: Number(result.rows[0]?.high_open || 0),
+    mediumOpen: Number(result.rows[0]?.medium_open || 0),
+    lowOpen: Number(result.rows[0]?.low_open || 0)
+  };
+}
+
+async function acknowledgeAlert(id) {
+  await ensureAlertTable();
+
+  const result = await db.query(
+    `
+    UPDATE system_alert_events
+    SET acknowledged = true,
+        acknowledged_at = NOW()
+    WHERE id = $1
+    RETURNING *
+    `,
+    [id]
+  );
+
+  if (result.rows.length === 0) {
+    return {
+      ok: false,
+      error: 'ALERT_NOT_FOUND',
+      message: 'Alert was not found.'
+    };
+  }
+
+  return {
+    ok: true,
+    alert: result.rows[0]
+  };
+}
+
+module.exports = {
+  ensureAlertTable,
+  storeAlerts,
+  getRecentAlerts,
+  getAlertStats,
+  acknowledgeAlert
+};

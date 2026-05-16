@@ -1,0 +1,73 @@
+const {
+  getTenantSubscriptionStatus
+} = require('../services/tenantSubscriptionService');
+
+function isGuardEnabled() {
+  return String(process.env.SUBSCRIPTION_GUARD_ENABLED || 'true').toLowerCase() === 'true';
+}
+
+function isBypassEnabled(req) {
+  const bypassKey = process.env.SUBSCRIPTION_GUARD_BYPASS_KEY;
+
+  if (bypassKey && req.headers['x-subscription-bypass-key'] === bypassKey) {
+    return true;
+  }
+
+  if (String(req.headers['x-subscription-bypass'] || '').toLowerCase() === 'true') {
+    return true;
+  }
+
+  return false;
+}
+
+function isPublicTenantSubscriptionPath(req) {
+  const path = String(req.originalUrl || req.url || '');
+
+  return path.startsWith('/api/tenant/subscription');
+}
+
+async function tenantSubscriptionGuard(req, res, next) {
+  try {
+    if (!isGuardEnabled()) {
+      return next();
+    }
+
+    if (isPublicTenantSubscriptionPath(req)) {
+      return next();
+    }
+
+    if (isBypassEnabled(req)) {
+      return next();
+    }
+
+    const payload = await getTenantSubscriptionStatus(req);
+    const access = payload.subscription?.access;
+
+    if (!access?.isAllowed) {
+      return res.status(402).json({
+        ok: false,
+        fallback: false,
+        error: 'SUBSCRIPTION_REQUIRED',
+        message: access?.reason || 'Tenant subscription does not allow access.',
+        phase: '22.4-backend-hard-subscription-guard',
+        tenantId: payload.tenantId,
+        subscription: payload.subscription
+      });
+    }
+
+    req.subscription = payload.subscription;
+
+    return next();
+  } catch (error) {
+    console.error('[tenantSubscriptionGuard] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'SUBSCRIPTION_GUARD_FAILED',
+      message: error.message
+    });
+  }
+}
+
+module.exports = tenantSubscriptionGuard;

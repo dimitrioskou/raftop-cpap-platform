@@ -1,0 +1,1501 @@
+import React, { useState } from 'react';
+
+const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+
+function buildUrl(path) {
+  return API_BASE ? `${API_BASE}${path}` : path;
+}
+
+function readToken() {
+  try {
+    return (
+      localStorage.getItem('raftop_auth_token') ||
+      localStorage.getItem('token') ||
+      ''
+    );
+  } catch (_error) {
+    return '';
+  }
+}
+
+async function readJsonSafely(response) {
+  const text = await response.text();
+
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return {};
+  }
+}
+
+async function apiRequest(path, options = {}) {
+  const token = readToken();
+
+  const response = await fetch(buildUrl(path), {
+    method: options.method || 'GET',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {})
+    },
+    credentials: 'include',
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+
+  const payload = await readJsonSafely(response);
+
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || options.errorLabel || 'Closed loop hub request failed');
+  }
+
+  return payload?.data ?? payload;
+}
+
+function firstValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+
+  return null;
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === 'object') {
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.rows)) return value.rows;
+    if (Array.isArray(value.problems)) return value.problems;
+    if (Array.isArray(value.remediationTasks)) return value.remediationTasks;
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.items)) return parsed.items;
+      if (parsed && Array.isArray(parsed.rows)) return parsed.rows;
+      return [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function numberValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function statusTone(value = '') {
+  const status = String(value || '').toLowerCase();
+
+  if (
+    [
+      'ok',
+      'success',
+      'synced',
+      'resolved',
+      'healthy',
+      'no_problems',
+      'passed',
+      'done',
+      'completed',
+      'complete',
+      'closed',
+      'fixed',
+      'true'
+    ].includes(status)
+  ) {
+    return 'success';
+  }
+
+  if (
+    [
+      'warning',
+      'open',
+      'pending',
+      'partial',
+      'needs_task',
+      'task_created',
+      'task_exists',
+      'not_started'
+    ].includes(status)
+  ) {
+    return 'warning';
+  }
+
+  if (
+    [
+      'failed',
+      'error',
+      'critical',
+      'missing',
+      'missing_task',
+      'false'
+    ].includes(status)
+  ) {
+    return 'danger';
+  }
+
+  return 'neutral';
+}
+
+function statusLabel(value = '') {
+  const status = String(value || '').toLowerCase();
+
+  if (status === 'healthy') return 'Healthy';
+  if (status === 'critical') return 'Critical';
+  if (status === 'warning') return 'Warning';
+  if (status === 'no_problems') return 'No Problems';
+  if (status === 'passed') return 'Passed';
+  if (status === 'failed') return 'Failed';
+  if (status === 'task_created') return 'Task Created';
+  if (status === 'task_exists') return 'Task Exists';
+  if (status === 'not_started') return 'Not Started';
+  if (status === 'resolved') return 'Resolved';
+  if (status === 'open') return 'Open';
+  if (status === 'missing_task') return 'Missing Task';
+  if (status === 'done') return 'Done';
+  if (status === 'completed') return 'Completed';
+  if (status === 'closed') return 'Closed';
+
+  return value || 'Unknown';
+}
+
+function badgeClass(tone = '') {
+  if (tone === 'success') return 'success';
+  if (tone === 'warning') return 'warning';
+  if (tone === 'danger') return 'danger';
+  return 'neutral';
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat('el-GR', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(date);
+}
+
+function openTenantRoute(path) {
+  window.location.href = path;
+}
+
+function buildQueryPath(basePath, filters = {}) {
+  const query = new URLSearchParams();
+
+  if (filters.signalId) query.set('signalId', filters.signalId);
+  if (filters.taskId) query.set('taskId', filters.taskId);
+  if (filters.verificationId) query.set('verificationId', filters.verificationId);
+  if (filters.sourceActionId) query.set('sourceActionId', filters.sourceActionId);
+  if (filters.verdict) query.set('verdict', filters.verdict);
+  if (filters.resolutionStatus) query.set('resolutionStatus', filters.resolutionStatus);
+
+  const qs = query.toString();
+
+  return qs ? `${basePath}?${qs}` : basePath;
+}
+
+function KpiCard({ label, value, tone, subtext }) {
+  return (
+    <div className={`kpi-card ${badgeClass(tone)}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {subtext ? <small>{subtext}</small> : null}
+    </div>
+  );
+}
+
+function FlowStep({ number, title, description, status, actionLabel, onAction }) {
+  const tone = statusTone(status);
+
+  return (
+    <div className={`flow-step ${badgeClass(tone)}`}>
+      <div className="step-number">{number}</div>
+
+      <div className="step-body">
+        <div className="step-top">
+          <h3>{title}</h3>
+          <span className={`badge ${badgeClass(tone)}`}>{statusLabel(status || 'Ready')}</span>
+        </div>
+
+        <p>{description}</p>
+
+        <button type="button" className="ghost-btn" onClick={onAction}>
+          {actionLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HealthPanel({ title, subtitle, data, error }) {
+  const ok = data?.ok === true;
+  const tone = error ? 'danger' : ok ? 'success' : 'warning';
+
+  return (
+    <div className={`health-panel ${badgeClass(tone)}`}>
+      <div>
+        <h3>{title}</h3>
+        <p>{subtitle}</p>
+      </div>
+
+      <span className={`badge ${badgeClass(tone)}`}>
+        {error ? 'Error' : ok ? 'OK' : 'Unknown'}
+      </span>
+
+      {error ? <div className="health-error">{error}</div> : null}
+
+      {data ? (
+        <div className="health-details">
+          <div>Phase: <strong>{data.phase || '—'}</strong></div>
+          <div>Route: <strong>{data.route || '—'}</strong></div>
+          <div>Checked: <strong>{formatDateTime(data.timestamp || new Date().toISOString())}</strong></div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function GroupedPanel({ title, rows, labelKey }) {
+  const safeRows = parseJsonArray(rows);
+
+  return (
+    <div className="grouped-panel">
+      <div className="section-subtitle">{title}</div>
+
+      {safeRows.length ? (
+        <div className="grouped-list">
+          {safeRows.map((row, index) => {
+            const label = firstValue(row[labelKey], row.status, row.verdict, 'unknown');
+            const total = firstValue(row.total, row.count, 0);
+
+            return (
+              <div key={`${label}-${index}`} className="grouped-row">
+                <span className={`badge ${badgeClass(statusTone(label))}`}>
+                  {statusLabel(label)}
+                </span>
+                <strong>{total}</strong>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="empty-state">No grouped data yet.</div>
+      )}
+    </div>
+  );
+}
+
+function LatestProblemsPanel({ problems }) {
+  const rows = parseJsonArray(problems);
+
+  return (
+    <section className="list-card">
+      <div className="section-header compact">
+        <div>
+          <div className="eyebrow">LATEST PROBLEM RECORDS</div>
+          <h2>Failed / warning verifications</h2>
+        </div>
+
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => openTenantRoute('/tenant/closed-loop-remediation')}
+        >
+          Open Remediation
+        </button>
+      </div>
+
+      <div className="table-list">
+        {rows.length ? (
+          rows.map((row) => (
+            <div key={row.id} className="table-row">
+              <div>
+                <strong>{row.signal_id || row.id}</strong>
+                <span>
+                  Verification {row.id} · Task {row.task_id || '—'}
+                </span>
+                <span>
+                  Created {formatDateTime(row.created_at)}
+                </span>
+              </div>
+
+              <div className="row-actions">
+                <span className={`badge ${badgeClass(statusTone(row.verdict))}`}>
+                  {statusLabel(row.verdict)}
+                </span>
+
+                <span className={`badge ${badgeClass(statusTone(row.remediation_status))}`}>
+                  {statusLabel(row.remediation_status)}
+                </span>
+
+                <span className={`badge ${badgeClass(statusTone(row.remediation_resolution_status))}`}>
+                  {statusLabel(row.remediation_resolution_status)}
+                </span>
+
+                <button
+                  type="button"
+                  className="mini-danger-btn"
+                  onClick={() =>
+                    openTenantRoute(
+                      buildQueryPath('/tenant/closed-loop-remediation', {
+                        signalId: row.signal_id,
+                        taskId: row.task_id,
+                        verificationId: row.id,
+                        verdict: row.verdict
+                      })
+                    )
+                  }
+                >
+                  Remediate
+                </button>
+
+                <button
+                  type="button"
+                  className="mini-success-btn"
+                  onClick={() =>
+                    openTenantRoute(
+                      buildQueryPath('/tenant/closed-loop-resolution', {
+                        verificationId: row.id,
+                        taskId: row.remediation_task_id || row.task_id,
+                        signalId: row.signal_id
+                      })
+                    )
+                  }
+                >
+                  Resolve
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="empty-state">
+            Δεν υπάρχουν failed/warning records.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LatestTasksPanel({ tasks }) {
+  const rows = parseJsonArray(tasks);
+
+  return (
+    <section className="list-card">
+      <div className="section-header compact">
+        <div>
+          <div className="eyebrow">LATEST REMEDIATION TASKS</div>
+          <h2>Closed-loop remediation tasks</h2>
+        </div>
+
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => openTenantRoute('/tenant/tasks-unified')}
+        >
+          Open Tasks
+        </button>
+      </div>
+
+      <div className="table-list">
+        {rows.length ? (
+          rows.map((row) => (
+            <div key={row.id} className="table-row">
+              <div>
+                <strong>{row.title || row.id}</strong>
+                <span>
+                  Task {row.id} · Source {row.source_ref || '—'}
+                </span>
+                <span>
+                  Updated {formatDateTime(row.updated_at || row.created_at)}
+                </span>
+              </div>
+
+              <div className="row-actions">
+                <span className={`badge ${badgeClass(statusTone(row.priority))}`}>
+                  {row.priority || 'medium'}
+                </span>
+
+                <span className={`badge ${badgeClass(statusTone(row.status))}`}>
+                  {statusLabel(row.status)}
+                </span>
+
+                <button
+                  type="button"
+                  className="mini-link-btn"
+                  onClick={() =>
+                    openTenantRoute(
+                      buildQueryPath('/tenant/tasks-unified', {
+                        taskId: row.id
+                      })
+                    )
+                  }
+                >
+                  Open
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="empty-state">
+            Δεν υπάρχουν remediation tasks.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function OperationalSummary({ summary, loading, error, onRefresh }) {
+  const metrics = summary?.metrics || {};
+  const grouped = summary?.grouped || {};
+  const latest = summary?.latest || {};
+  const systemStatus = summary?.systemStatus || 'unknown';
+  const tone = statusTone(systemStatus);
+
+  return (
+    <section className={`summary-card ${badgeClass(tone)}`}>
+      <div className="section-header">
+        <div>
+          <div className="eyebrow">REAL OPERATIONAL METRICS</div>
+          <h2>Closed-loop control summary</h2>
+          <p>
+            Αυτά είναι τα πραγματικά επιχειρησιακά metrics. Health check σημαίνει ότι τα endpoints απαντούν.
+            Εδώ βλέπουμε αν η διαδικασία όντως κλείνει.
+          </p>
+        </div>
+
+        <div className="summary-status-box">
+          <span>System Status</span>
+          <strong>{statusLabel(systemStatus)}</strong>
+          <small>{summary?.generatedAt ? `Updated: ${formatDateTime(summary.generatedAt)}` : 'Not loaded yet'}</small>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="banner danger">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="summary-actions">
+        <button type="button" className="primary-btn" disabled={loading} onClick={onRefresh}>
+          {loading ? 'Loading...' : 'Refresh Real Metrics'}
+        </button>
+
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => openTenantRoute('/tenant/closed-loop-remediation')}
+        >
+          Open Remediation
+        </button>
+
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => openTenantRoute('/tenant/closed-loop-resolution')}
+        >
+          Open Resolution
+        </button>
+      </div>
+
+      <div className="metrics-grid">
+        <KpiCard
+          label="Total verifications"
+          value={metrics.totalVerifications || 0}
+          tone="neutral"
+        />
+        <KpiCard
+          label="Problem verifications"
+          value={metrics.problemVerifications || 0}
+          tone={numberValue(metrics.problemVerifications) > 0 ? 'danger' : 'success'}
+          subtext="failed + warning"
+        />
+        <KpiCard
+          label="Failed"
+          value={metrics.failedVerifications || 0}
+          tone={numberValue(metrics.failedVerifications) > 0 ? 'danger' : 'success'}
+        />
+        <KpiCard
+          label="Warnings"
+          value={metrics.warningVerifications || 0}
+          tone={numberValue(metrics.warningVerifications) > 0 ? 'warning' : 'success'}
+        />
+        <KpiCard
+          label="Remediation tasks"
+          value={metrics.remediationTasks || 0}
+          tone={numberValue(metrics.remediationTasks) > 0 ? 'warning' : 'neutral'}
+        />
+        <KpiCard
+          label="Open remediation tasks"
+          value={metrics.remediationOpenTasks || 0}
+          tone={numberValue(metrics.remediationOpenTasks) > 0 ? 'warning' : 'success'}
+        />
+        <KpiCard
+          label="Terminal tasks"
+          value={metrics.remediationTerminalTasks || 0}
+          tone={numberValue(metrics.remediationTerminalTasks) > 0 ? 'success' : 'neutral'}
+        />
+        <KpiCard
+          label="Resolved records"
+          value={metrics.resolvedRecords || 0}
+          tone={numberValue(metrics.resolvedRecords) > 0 ? 'success' : 'neutral'}
+        />
+        <KpiCard
+          label="Open resolution"
+          value={metrics.openResolutionRecords || 0}
+          tone={numberValue(metrics.openResolutionRecords) > 0 ? 'warning' : 'success'}
+        />
+        <KpiCard
+          label="Missing task"
+          value={metrics.missingTaskResolutionRecords || 0}
+          tone={numberValue(metrics.missingTaskResolutionRecords) > 0 ? 'danger' : 'success'}
+        />
+        <KpiCard
+          label="Remediation coverage"
+          value={`${metrics.remediationCoverageRate || 0}%`}
+          tone={numberValue(metrics.remediationCoverageRate) >= 90 ? 'success' : 'warning'}
+        />
+        <KpiCard
+          label="Completion rate"
+          value={`${metrics.completionRate || 0}%`}
+          tone={numberValue(metrics.completionRate) >= 80 ? 'success' : 'warning'}
+        />
+      </div>
+
+      <div className="grouped-grid">
+        <GroupedPanel
+          title="Verification by verdict"
+          rows={grouped.verificationByVerdict}
+          labelKey="verdict"
+        />
+
+        <GroupedPanel
+          title="Remediation by status"
+          rows={grouped.remediationByStatus}
+          labelKey="status"
+        />
+
+        <GroupedPanel
+          title="Resolution by status"
+          rows={grouped.resolutionByStatus}
+          labelKey="status"
+        />
+      </div>
+
+      <div className="latest-grid">
+        <LatestProblemsPanel problems={latest.problems} />
+        <LatestTasksPanel tasks={latest.remediationTasks} />
+      </div>
+    </section>
+  );
+}
+
+export default function TenantClosedLoopControlHubPage() {
+  const [signalId, setSignalId] = useState('AT-001');
+  const [taskId, setTaskId] = useState('');
+  const [verificationId, setVerificationId] = useState('');
+  const [sourceActionId, setSourceActionId] = useState('');
+
+  const [loadingHealth, setLoadingHealth] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+
+  const [health, setHealth] = useState({
+    verification: null,
+    remediation: null,
+    resolution: null,
+    control: null
+  });
+
+  const [errors, setErrors] = useState({
+    verification: '',
+    remediation: '',
+    resolution: '',
+    control: ''
+  });
+
+  const [summary, setSummary] = useState(null);
+  const [summaryError, setSummaryError] = useState('');
+
+  async function checkHealth() {
+    setLoadingHealth(true);
+    setErrors({
+      verification: '',
+      remediation: '',
+      resolution: '',
+      control: ''
+    });
+
+    const nextHealth = {
+      verification: null,
+      remediation: null,
+      resolution: null,
+      control: null
+    };
+
+    const nextErrors = {
+      verification: '',
+      remediation: '',
+      resolution: '',
+      control: ''
+    };
+
+    try {
+      nextHealth.verification = await apiRequest('/api/tenant/closed-loop-verification/health', {
+        errorLabel: 'Verification health failed'
+      });
+    } catch (error) {
+      nextErrors.verification = error?.message || 'Verification health failed';
+    }
+
+    try {
+      nextHealth.remediation = await apiRequest('/api/tenant/closed-loop-remediation/health', {
+        errorLabel: 'Remediation health failed'
+      });
+    } catch (error) {
+      nextErrors.remediation = error?.message || 'Remediation health failed';
+    }
+
+    try {
+      nextHealth.resolution = await apiRequest('/api/tenant/closed-loop-resolution/health', {
+        errorLabel: 'Resolution health failed'
+      });
+    } catch (error) {
+      nextErrors.resolution = error?.message || 'Resolution health failed';
+    }
+
+    try {
+      nextHealth.control = await apiRequest('/api/tenant/closed-loop-control/health', {
+        errorLabel: 'Control health failed'
+      });
+    } catch (error) {
+      nextErrors.control = error?.message || 'Control health failed';
+    }
+
+    setHealth(nextHealth);
+    setErrors(nextErrors);
+    setLoadingHealth(false);
+  }
+
+  async function loadSummary() {
+    setLoadingSummary(true);
+    setSummaryError('');
+
+    try {
+      const payload = await apiRequest('/api/tenant/closed-loop-control/summary', {
+        errorLabel: 'Closed loop control summary failed'
+      });
+
+      setSummary(payload);
+    } catch (error) {
+      setSummaryError(error?.message || 'Closed loop control summary failed');
+    } finally {
+      setLoadingSummary(false);
+    }
+  }
+
+  function openVerification() {
+    openTenantRoute(
+      buildQueryPath('/tenant/closed-loop-verification', {
+        signalId,
+        taskId,
+        sourceActionId
+      })
+    );
+  }
+
+  function openRemediation() {
+    openTenantRoute(
+      buildQueryPath('/tenant/closed-loop-remediation', {
+        signalId,
+        taskId,
+        sourceActionId
+      })
+    );
+  }
+
+  function openResolution() {
+    openTenantRoute(
+      buildQueryPath('/tenant/closed-loop-resolution', {
+        signalId,
+        taskId,
+        verificationId
+      })
+    );
+  }
+
+  function openAtlas() {
+    openTenantRoute('/tenant/atlas/action-center');
+  }
+
+  const allHealthy =
+    health.verification?.ok === true &&
+    health.remediation?.ok === true &&
+    health.resolution?.ok === true &&
+    health.control?.ok === true;
+
+  const metrics = summary?.metrics || {};
+  const realStatus = summary?.systemStatus || 'unknown';
+
+  return (
+    <div className="control-hub-page">
+      <style>{pageStyles}</style>
+
+      <section className="hero-card">
+        <div>
+          <div className="eyebrow">ATLAS CLOSED LOOP CONTROL</div>
+          <h1>Closed Loop Control Hub</h1>
+          <p>
+            Phase 19.44: το hub δεν δείχνει πλέον μόνο health checks. Τραβάει πραγματικά operational metrics
+            από το backend και αποδεικνύει αν το closed loop κλείνει επιχειρησιακά.
+          </p>
+        </div>
+
+        <div className="hero-metrics">
+          <KpiCard
+            label="Endpoint chain"
+            value={allHealthy ? 'Healthy' : 'Check'}
+            tone={allHealthy ? 'success' : 'warning'}
+            subtext="Verification + Remediation + Resolution + Control"
+          />
+          <KpiCard
+            label="Operational status"
+            value={statusLabel(realStatus)}
+            tone={statusTone(realStatus)}
+            subtext="From real summary"
+          />
+          <KpiCard
+            label="Problem records"
+            value={metrics.problemVerifications || 0}
+            tone={numberValue(metrics.problemVerifications) > 0 ? 'danger' : 'success'}
+          />
+          <KpiCard
+            label="Completion rate"
+            value={`${metrics.completionRate || 0}%`}
+            tone={numberValue(metrics.completionRate) >= 80 ? 'success' : 'warning'}
+          />
+        </div>
+      </section>
+
+      <section className="toolbar-card">
+        <div className="input-group">
+          <label>Signal ID</label>
+          <input
+            value={signalId}
+            onChange={(event) => setSignalId(event.target.value)}
+            placeholder="AT-001"
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Task ID</label>
+          <input
+            value={taskId}
+            onChange={(event) => setTaskId(event.target.value)}
+            placeholder="atlas-task-..."
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Verification ID</label>
+          <input
+            value={verificationId}
+            onChange={(event) => setVerificationId(event.target.value)}
+            placeholder="clv-..."
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Source Action ID</label>
+          <input
+            value={sourceActionId}
+            onChange={(event) => setSourceActionId(event.target.value)}
+            placeholder="ATT-001"
+          />
+        </div>
+
+        <button
+          type="button"
+          className="primary-btn"
+          disabled={loadingHealth}
+          onClick={checkHealth}
+        >
+          {loadingHealth ? 'Checking...' : 'Check Backend Chain'}
+        </button>
+
+        <button
+          type="button"
+          className="success-btn"
+          disabled={loadingSummary}
+          onClick={loadSummary}
+        >
+          {loadingSummary ? 'Loading...' : 'Load Real Metrics'}
+        </button>
+      </section>
+
+      <OperationalSummary
+        summary={summary}
+        loading={loadingSummary}
+        error={summaryError}
+        onRefresh={loadSummary}
+      />
+
+      <section className="flow-card">
+        <div className="section-header">
+          <div>
+            <div className="eyebrow">OPERATIONAL FLOW</div>
+            <h2>End-to-end closed loop</h2>
+          </div>
+
+          <button type="button" className="ghost-btn" onClick={openAtlas}>
+            Back to ATLAS
+          </button>
+        </div>
+
+        <div className="flow-grid">
+          <FlowStep
+            number="1"
+            title="Run Verification"
+            status={health.verification?.ok ? 'OK' : 'Pending'}
+            description="Ελέγχει αν task, signal, payload και writeback είναι συνεπή."
+            actionLabel="Open Verification"
+            onAction={openVerification}
+          />
+
+          <FlowStep
+            number="2"
+            title="Create Remediation"
+            status={health.remediation?.ok ? 'OK' : 'Pending'}
+            description="Μετατρέπει failed/warning verification σε πραγματικό remediation task."
+            actionLabel="Open Remediation"
+            onAction={openRemediation}
+          />
+
+          <FlowStep
+            number="3"
+            title="Sync Resolution"
+            status={health.resolution?.ok ? 'OK' : 'Pending'}
+            description="Όταν το remediation task γίνει done/resolved, γράφει resolved πίσω στο audit."
+            actionLabel="Open Resolution"
+            onAction={openResolution}
+          />
+        </div>
+      </section>
+
+      <section className="health-grid">
+        <HealthPanel
+          title="Verification API"
+          subtitle="/api/tenant/closed-loop-verification/health"
+          data={health.verification}
+          error={errors.verification}
+        />
+
+        <HealthPanel
+          title="Remediation API"
+          subtitle="/api/tenant/closed-loop-remediation/health"
+          data={health.remediation}
+          error={errors.remediation}
+        />
+
+        <HealthPanel
+          title="Resolution API"
+          subtitle="/api/tenant/closed-loop-resolution/health"
+          data={health.resolution}
+          error={errors.resolution}
+        />
+
+        <HealthPanel
+          title="Control API"
+          subtitle="/api/tenant/closed-loop-control/health"
+          data={health.control}
+          error={errors.control}
+        />
+      </section>
+
+      <section className="warning-card">
+        <h2>Αμείλικτο κριτήριο ολοκλήρωσης</h2>
+        <p>
+          Το project δεν θεωρείται επιχειρησιακά κλειστό επειδή υπάρχει dashboard. Θεωρείται κλειστό όταν:
+          failed/warning records έχουν remediation task, τα remediation tasks κλείνουν, και το audit γράφει
+          <strong> remediation_resolution_status = resolved</strong>.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+const pageStyles = `
+  .control-hub-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 18px;
+  }
+
+  .hero-card,
+  .toolbar-card,
+  .flow-card,
+  .health-panel,
+  .warning-card,
+  .summary-card,
+  .grouped-panel,
+  .list-card {
+    background: rgba(255,255,255,0.96);
+    border: 1px solid rgba(148,163,184,0.18);
+    border-radius: 24px;
+    box-shadow: 0 14px 40px rgba(15,23,42,0.08);
+  }
+
+  .hero-card {
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 1.1fr 580px;
+    gap: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(79,70,229,0.14), transparent 30%),
+      linear-gradient(135deg, rgba(255,255,255,0.98), rgba(238,242,255,0.96));
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #4f46e5;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 30px;
+    color: #0f172a;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 24px;
+    color: #0f172a;
+  }
+
+  h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+  }
+
+  p {
+    color: #475569;
+    line-height: 1.7;
+  }
+
+  .hero-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-self: center;
+  }
+
+  .kpi-card {
+    border-radius: 18px;
+    padding: 14px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+
+  .kpi-card span {
+    display: block;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .kpi-card strong {
+    display: block;
+    margin-top: 8px;
+    color: #0f172a;
+    font-size: 24px;
+  }
+
+  .kpi-card small {
+    display: block;
+    margin-top: 6px;
+    color: #64748b;
+  }
+
+  .kpi-card.success,
+  .summary-card.success {
+    background: #ecfdf5;
+    border-color: #86efac;
+  }
+
+  .kpi-card.warning,
+  .summary-card.warning {
+    background: #fff7ed;
+    border-color: #fdba74;
+  }
+
+  .kpi-card.danger,
+  .summary-card.danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+  }
+
+  .toolbar-card {
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 220px 200px;
+    gap: 12px;
+    align-items: end;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .input-group label {
+    color: #344054;
+    font-weight: 900;
+    font-size: 12px;
+  }
+
+  .input-group input {
+    border: 1px solid #d0d5dd;
+    border-radius: 14px;
+    padding: 12px 14px;
+    background: #fff;
+    color: #101828;
+    font-size: 14px;
+    outline: none;
+  }
+
+  .summary-card,
+  .flow-card,
+  .warning-card {
+    padding: 20px;
+  }
+
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .section-header.compact {
+    margin-bottom: 12px;
+  }
+
+  .summary-status-box {
+    min-width: 240px;
+    border-radius: 18px;
+    padding: 14px;
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(148,163,184,0.25);
+  }
+
+  .summary-status-box span {
+    display: block;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .summary-status-box strong {
+    display: block;
+    margin-top: 8px;
+    color: #0f172a;
+    font-size: 24px;
+  }
+
+  .summary-status-box small {
+    display: block;
+    margin-top: 6px;
+    color: #64748b;
+  }
+
+  .summary-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .grouped-grid {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .grouped-panel,
+  .list-card {
+    padding: 16px;
+  }
+
+  .section-subtitle {
+    color: #0f172a;
+    font-weight: 900;
+    margin-bottom: 12px;
+  }
+
+  .grouped-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .grouped-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .latest-grid {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .table-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .table-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    border-radius: 16px;
+    padding: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .table-row strong {
+    display: block;
+    color: #0f172a;
+    font-weight: 900;
+  }
+
+  .table-row span {
+    display: block;
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  .row-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .flow-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .flow-step {
+    display: flex;
+    gap: 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 16px;
+    background: #f8fafc;
+  }
+
+  .flow-step.success {
+    background: #ecfdf5;
+    border-color: #86efac;
+  }
+
+  .flow-step.warning {
+    background: #fff7ed;
+    border-color: #fdba74;
+  }
+
+  .flow-step.danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+  }
+
+  .step-number {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    border-radius: 999px;
+    background: #4f46e5;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+  }
+
+  .step-body {
+    flex: 1;
+  }
+
+  .step-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .health-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .health-panel {
+    padding: 18px;
+  }
+
+  .health-panel.success {
+    border-color: #86efac;
+    background: #ecfdf5;
+  }
+
+  .health-panel.warning {
+    border-color: #fdba74;
+    background: #fff7ed;
+  }
+
+  .health-panel.danger {
+    border-color: #fecaca;
+    background: #fef2f2;
+  }
+
+  .health-details {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: #334155;
+    font-size: 13px;
+  }
+
+  .health-details strong {
+    color: #0f172a;
+  }
+
+  .health-error {
+    margin-top: 12px;
+    color: #b91c1c;
+    font-weight: 800;
+  }
+
+  .empty-state {
+    color: #64748b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-weight: 900;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .badge.success {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #86efac;
+  }
+
+  .badge.warning {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #fdba74;
+  }
+
+  .badge.danger {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+
+  .badge.neutral {
+    background: #f8fafc;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+  }
+
+  .primary-btn,
+  .success-btn,
+  .ghost-btn,
+  .mini-link-btn,
+  .mini-danger-btn,
+  .mini-success-btn {
+    border-radius: 14px;
+    padding: 10px 14px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .primary-btn {
+    border: 0;
+    background: linear-gradient(135deg, #4f46e5 0%, #312e81 100%);
+    color: #fff;
+  }
+
+  .success-btn {
+    border: 0;
+    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    color: #fff;
+  }
+
+  .ghost-btn {
+    border: 1px solid #d0d5dd;
+    background: #fff;
+    color: #344054;
+  }
+
+  .mini-link-btn,
+  .mini-danger-btn,
+  .mini-success-btn {
+    padding: 7px 10px;
+    font-size: 12px;
+    border-radius: 999px;
+  }
+
+  .mini-link-btn {
+    border: 1px solid #d0d5dd;
+    background: #fff;
+    color: #344054;
+  }
+
+  .mini-danger-btn {
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  .mini-success-btn {
+    border: 1px solid #86efac;
+    background: #ecfdf5;
+    color: #047857;
+  }
+
+  .primary-btn:disabled,
+  .success-btn:disabled,
+  .ghost-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .warning-card {
+    border-color: #fdba74;
+    background: #fff7ed;
+  }
+
+  .warning-card strong {
+    color: #991b1b;
+  }
+
+  .banner {
+    border-radius: 18px;
+    padding: 14px 16px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .banner.danger {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+
+  @media (max-width: 1500px) {
+    .hero-card,
+    .toolbar-card,
+    .flow-grid,
+    .latest-grid,
+    .health-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .hero-metrics,
+    .metrics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grouped-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .section-header {
+      flex-direction: column;
+    }
+
+    .summary-status-box {
+      width: 100%;
+      box-sizing: border-box;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .hero-metrics,
+    .metrics-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .flow-step,
+    .table-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .row-actions {
+      justify-content: flex-start;
+    }
+  }
+`;

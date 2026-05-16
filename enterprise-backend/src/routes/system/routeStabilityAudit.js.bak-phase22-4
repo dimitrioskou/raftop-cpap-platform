@@ -1,0 +1,269 @@
+const express = require('express');
+
+const router = express.Router();
+
+const AUDIT_ROUTES = [
+  { group: 'system', name: 'Backend Health', method: 'GET', path: '/api/health', critical: true, expectedStatus: [200] },
+
+  { group: 'tenant', name: 'Tenant Dashboard', method: 'GET', path: '/api/tenant/dashboard', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Tenant Patients', method: 'GET', path: '/api/tenant/patients', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Tenant Devices', method: 'GET', path: '/api/tenant/devices', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Patient Signals', method: 'GET', path: '/api/tenant/patient-signals', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Unified Tasks', method: 'GET', path: '/api/tenant/tasks-unified', critical: true, expectedStatus: [200, 401, 403] },
+
+  { group: 'atlas', name: 'ATLAS Main', method: 'GET', path: '/api/tenant/atlas', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'atlas', name: 'ATLAS Action Center', method: 'GET', path: '/api/tenant/atlas/action-center', critical: true, expectedStatus: [200, 401, 403] },
+
+  { group: 'closed_loop', name: 'Closed Loop Verification', method: 'GET', path: '/api/tenant/closed-loop-verification', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'closed_loop', name: 'Closed Loop Remediation', method: 'GET', path: '/api/tenant/closed-loop-remediation', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'closed_loop', name: 'Closed Loop Resolution', method: 'GET', path: '/api/tenant/closed-loop-resolution', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'closed_loop', name: 'Closed Loop Control', method: 'GET', path: '/api/tenant/closed-loop-control', critical: true, expectedStatus: [200, 401, 403] },
+  { group: 'closed_loop', name: 'Closed Loop Control Summary', method: 'GET', path: '/api/tenant/closed-loop/control-summary', critical: true, expectedStatus: [200] },
+
+  { group: 'tenant', name: 'Notes', method: 'GET', path: '/api/tenant/notes', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Referrals', method: 'GET', path: '/api/tenant/referrals', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Followup', method: 'GET', path: '/api/tenant/followup', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'tenant', name: 'Notifications', method: 'GET', path: '/api/tenant/notifications', critical: false, expectedStatus: [200, 401, 403] },
+
+  { group: 'business', name: 'Payments', method: 'GET', path: '/api/tenant/payments', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'business', name: 'Users', method: 'GET', path: '/api/tenant/users', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'business', name: 'Billing', method: 'GET', path: '/api/tenant/billing', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'business', name: 'Modules', method: 'GET', path: '/api/tenant/modules', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'business', name: 'Integrations', method: 'GET', path: '/api/tenant/integrations', critical: false, expectedStatus: [200, 401, 403] },
+  { group: 'business', name: 'Branding', method: 'GET', path: '/api/tenant/branding', critical: false, expectedStatus: [200, 401, 403] }
+];
+
+function getBaseUrl(req) {
+  return `${req.protocol || 'http'}://${req.get('host')}`;
+}
+
+function safeJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function detectFallback(payloadText) {
+  const json = safeJson(payloadText);
+
+  if (json && typeof json === 'object') {
+    if (json.fallback === true || json.usingFallback === true || json.fallbackMode === true) {
+      return true;
+    }
+  }
+
+  const text = String(payloadText || '').toLowerCase();
+
+  return (
+    text.includes('fallback mode') ||
+    text.includes('using fallback') ||
+    text.includes('mock data') ||
+    text.includes('demo only') ||
+    text.includes('cannot get') ||
+    text.includes('route not found')
+  );
+}
+
+function classifyRoute(route, statusCode, payloadText, errorMessage) {
+  if (errorMessage) {
+    return { status: 'FAIL', reason: 'REQUEST_FAILED', message: errorMessage };
+  }
+
+  if (statusCode === 404) {
+    return { status: 'FAIL', reason: 'ROUTE_NOT_FOUND', message: 'Route returned 404.' };
+  }
+
+  if (statusCode >= 500) {
+    return { status: 'FAIL', reason: 'SERVER_ERROR', message: `Route returned ${statusCode}.` };
+  }
+
+  if (detectFallback(payloadText)) {
+    return {
+      status: route.critical ? 'FAIL' : 'WARN',
+      reason: 'FALLBACK_DETECTED',
+      message: 'Response contains real fallback/mock/not-found text.'
+    };
+  }
+
+  if (route.expectedStatus.includes(statusCode)) {
+    if ([401, 403].includes(statusCode)) {
+      return {
+        status: 'PASS',
+        reason: 'AUTH_PROTECTED',
+        message: `Route exists and is auth-protected (${statusCode}).`
+      };
+    }
+
+    return { status: 'PASS', reason: 'OK', message: `Route returned ${statusCode}.` };
+  }
+
+  return {
+    status: route.critical ? 'FAIL' : 'WARN',
+    reason: 'UNEXPECTED_STATUS',
+    message: `Unexpected HTTP status ${statusCode}.`
+  };
+}
+
+async function checkRoute(req, route) {
+  const url = `${getBaseUrl(req)}${route.path}`;
+  const startedAt = Date.now();
+
+  try {
+    const headers = {
+      Accept: 'application/json',
+      'x-tenant-id': req.headers['x-tenant-id'] || 'demo-tenant'
+    };
+
+    if (req.headers.authorization) {
+      headers.Authorization = req.headers.authorization;
+    }
+
+    const response = await fetch(url, {
+      method: route.method,
+      headers
+    });
+
+    const payloadText = await response.text();
+    const durationMs = Date.now() - startedAt;
+    const classification = classifyRoute(route, response.status, payloadText, null);
+
+    return {
+      group: route.group,
+      name: route.name,
+      method: route.method,
+      path: route.path,
+      critical: route.critical,
+      statusCode: response.status,
+      durationMs,
+      status: classification.status,
+      reason: classification.reason,
+      message: classification.message,
+      preview: payloadText.slice(0, 240)
+    };
+  } catch (error) {
+    const classification = classifyRoute(route, null, '', error.message);
+
+    return {
+      group: route.group,
+      name: route.name,
+      method: route.method,
+      path: route.path,
+      critical: route.critical,
+      statusCode: null,
+      durationMs: Date.now() - startedAt,
+      status: classification.status,
+      reason: classification.reason,
+      message: classification.message,
+      preview: ''
+    };
+  }
+}
+
+function buildSummary(results) {
+  const total = results.length;
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  const warned = results.filter((r) => r.status === 'WARN').length;
+  const failed = results.filter((r) => r.status === 'FAIL').length;
+  const criticalFailed = results.filter((r) => r.critical && r.status === 'FAIL').length;
+  const routeNotFound = results.filter((r) => r.reason === 'ROUTE_NOT_FOUND').length;
+  const serverErrors = results.filter((r) => r.reason === 'SERVER_ERROR').length;
+  const fallbackDetected = results.filter((r) => r.reason === 'FALLBACK_DETECTED').length;
+
+  let readinessStatus = 'READY';
+
+  if (criticalFailed > 0 || routeNotFound > 0 || serverErrors > 0) {
+    readinessStatus = 'BLOCKED';
+  } else if (warned > 0 || fallbackDetected > 0) {
+    readinessStatus = 'NEEDS_ATTENTION';
+  }
+
+  return {
+    total,
+    passed,
+    warned,
+    failed,
+    criticalFailed,
+    routeNotFound,
+    serverErrors,
+    fallbackDetected,
+    readinessStatus
+  };
+}
+
+function buildNextBestActions(summary) {
+  const actions = [];
+
+  if (summary.routeNotFound > 0) {
+    actions.push({
+      priority: 'HIGH',
+      title: 'Fix missing route registrations',
+      description: 'One or more endpoints return 404. Check route files and server.js app.use registration.',
+      type: 'ROUTE_REGISTRATION'
+    });
+  }
+
+  if (summary.serverErrors > 0) {
+    actions.push({
+      priority: 'HIGH',
+      title: 'Fix backend 500 errors',
+      description: 'One or more routes crash. Check terminal logs and DB schema mismatches.',
+      type: 'SERVER_ERROR_FIX'
+    });
+  }
+
+  if (summary.fallbackDetected > 0) {
+    actions.push({
+      priority: 'MEDIUM',
+      title: 'Remove fallback responses',
+      description: 'Real fallback/mock responses were detected.',
+      type: 'FALLBACK_REMOVAL'
+    });
+  }
+
+  if (actions.length === 0) {
+    actions.push({
+      priority: 'LOW',
+      title: 'Proceed to frontend stability audit',
+      description: 'Backend route layer is stable enough to continue.',
+      type: 'PHASE_20_FRONTEND_READY'
+    });
+  }
+
+  return actions;
+}
+
+router.get('/', async (req, res) => {
+  try {
+    const results = [];
+
+    for (const route of AUDIT_ROUTES) {
+      results.push(await checkRoute(req, route));
+    }
+
+    const summary = buildSummary(results);
+
+    return res.json({
+      ok: summary.readinessStatus !== 'BLOCKED',
+      fallback: false,
+      source: 'runtime-route-audit',
+      phase: '20.2-backend-route-stability-audit-fixed',
+      generatedAt: new Date().toISOString(),
+      summary,
+      results,
+      nextBestActions: buildNextBestActions(summary)
+    });
+  } catch (error) {
+    console.error('[route-stability-audit] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'ROUTE_STABILITY_AUDIT_FAILED',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;

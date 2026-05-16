@@ -98,12 +98,24 @@ function getCurrentPageTitle(pathname = '') {
     ['/tenant/notes', 'Notes'],
     ['/tenant/referrals', 'Referrals'],
     ['/tenant/notifications', 'Notifications'],
+    ['/tenant/patient-coaching', 'Patient Coaching'],
+    ['/tenant/patient-signals', 'Patient Signals'],
+    ['/tenant/patient-messages', 'Patient Inbox'],
+    ['/tenant/patient-reports', 'Patient Reports'],
+    ['/tenant/live-verification', 'Live Verification'],
+    ['/tenant/fail-drilldown', 'Fail Drilldown'],
+    ['/tenant/reports/patient', 'Patient Reports'],
+    ['/tenant/import-center', 'Import Center'],
+    ['/tenant/import-history', 'Import History'],
     ['/tenant/atlas/summary', 'ATLAS Summary'],
     ['/tenant/atlas/queue', 'ATLAS Queue'],
     ['/tenant/atlas/daily', 'ATLAS Daily Board'],
     ['/tenant/atlas/tasks', 'ATLAS Tasks'],
     ['/tenant/atlas/alerts', 'ATLAS Alerts'],
     ['/tenant/atlas/auto-actions', 'ATLAS Auto Actions'],
+    ['/tenant/atlas/action-center', 'ATLAS Action Center'],
+    ['/tenant/production-audit', 'Production Audit'],
+    ['/tenant/patient-orchestrator', 'Patient Orchestrator'],
     ['/tenant/predictive-ai', 'Predictive AI'],
     ['/tenant/doctor-billing', 'Doctor Billing'],
     ['/tenant/revenue', 'Revenue'],
@@ -241,6 +253,14 @@ function NavItem({ to, active, tone, icon, label }) {
   );
 }
 
+function canShowItem(role, item) {
+  if (!item?.featureKey) {
+    return true;
+  }
+
+  return hasRoleAccess(role, item.featureKey);
+}
+
 export default function TenantLayout({ children }) {
   const location = useLocation();
   const { tenant } = useTenant();
@@ -269,27 +289,33 @@ export default function TenantLayout({ children }) {
         { to: '/tenant/patients', tone: 'blue', icon: '👤', label: 'Patients', featureKey: FEATURE_KEYS.patients },
         { to: '/tenant/devices', tone: 'blue', icon: '🩺', label: 'Devices', featureKey: FEATURE_KEYS.devices },
         { to: '/tenant/compliance', tone: 'blue', icon: '✅', label: 'Compliance', featureKey: FEATURE_KEYS.compliance },
+        { to: '/tenant/patient-coaching', tone: 'blue', icon: '🎓', label: 'Patient Coaching', featureKey: FEATURE_KEYS.followup },
+        { to: '/tenant/patient-reports', tone: 'blue', icon: '📄', label: 'Patient Reports', featureKey: FEATURE_KEYS.followup },
         { to: '/tenant/followup', tone: 'blue', icon: '📞', label: 'Follow-up', featureKey: FEATURE_KEYS.followup },
         { to: '/tenant/tasks', tone: 'blue', icon: '🗂', label: 'Tasks', featureKey: FEATURE_KEYS.tasks },
         { to: '/tenant/notes', tone: 'blue', icon: '📝', label: 'Notes', featureKey: FEATURE_KEYS.notes },
         { to: '/tenant/referrals', tone: 'blue', icon: '📨', label: 'Referrals', featureKey: FEATURE_KEYS.referrals },
-        { to: '/tenant/notifications', tone: 'blue', icon: '🔔', label: 'Notifications', featureKey: FEATURE_KEYS.notifications }
-      ].filter((item) => hasRoleAccess(role, item.featureKey)),
+        { to: '/tenant/notifications', tone: 'blue', icon: '🔔', label: 'Notifications', featureKey: FEATURE_KEYS.notifications },
+        { to: '/tenant/patient-messages', tone: 'blue', icon: '💬', label: 'Patient Inbox', featureKey: FEATURE_KEYS.notifications },
+        { to: '/tenant/patient-signals', tone: 'blue', icon: '⚑', label: 'Patient Signals' },
+        
+      ].filter((item) => canShowItem(role, item)),
     [role]
   );
 
   const atlasItems = useMemo(
-    () =>
-      [
-        { to: '/tenant/atlas/summary', tone: 'purple', icon: '🧠', label: 'ATLAS Summary', featureKey: FEATURE_KEYS.atlasSummary },
-        { to: '/tenant/atlas/queue', tone: 'purple', icon: '📚', label: 'ATLAS Queue', featureKey: FEATURE_KEYS.atlasQueue },
-        { to: '/tenant/atlas/daily', tone: 'purple', icon: '📅', label: 'ATLAS Daily', featureKey: FEATURE_KEYS.atlasDaily },
-        { to: '/tenant/atlas/tasks', tone: 'purple', icon: '🎯', label: 'ATLAS Tasks', featureKey: FEATURE_KEYS.atlasTasks },
-        { to: '/tenant/atlas/alerts', tone: 'purple', icon: '🚨', label: 'ATLAS Alerts', featureKey: FEATURE_KEYS.atlasAlerts },
-        { to: '/tenant/atlas/auto-actions', tone: 'purple', icon: '⚙️', label: 'ATLAS Auto Actions', featureKey: FEATURE_KEYS.atlasAutoActions }
-      ].filter((item) => hasRoleAccess(role, item.featureKey)),
-    [role]
-  );
+  () =>
+    [
+      { to: '/tenant/atlas/summary', tone: 'purple', icon: '🧠', label: 'ATLAS Summary', featureKey: FEATURE_KEYS.atlasSummary },
+      { to: '/tenant/atlas/queue', tone: 'purple', icon: '📚', label: 'ATLAS Queue', featureKey: FEATURE_KEYS.atlasQueue },
+      { to: '/tenant/atlas/daily', tone: 'purple', icon: '📅', label: 'ATLAS Daily', featureKey: FEATURE_KEYS.atlasDaily },
+      { to: '/tenant/atlas/tasks', tone: 'purple', icon: '🎯', label: 'ATLAS Tasks', featureKey: FEATURE_KEYS.atlasTasks },
+      { to: '/tenant/atlas/alerts', tone: 'purple', icon: '🚨', label: 'ATLAS Alerts', featureKey: FEATURE_KEYS.atlasAlerts },
+      { to: '/tenant/atlas/auto-actions', tone: 'purple', icon: '⚙️', label: 'ATLAS Auto Actions', featureKey: FEATURE_KEYS.atlasAutoActions },
+      { to: '/tenant/atlas/action-center', tone: 'purple', icon: '⚡', label: 'ATLAS Action Center', featureKey: FEATURE_KEYS.atlasQueue }
+    ].filter((item) => canShowItem(role, item)),
+  [role]
+);
 
   const businessItems = useMemo(
     () =>
@@ -299,22 +325,26 @@ export default function TenantLayout({ children }) {
         { to: '/tenant/revenue', tone: 'green', icon: '💶', label: 'Revenue', featureKey: FEATURE_KEYS.revenue },
         { to: '/tenant/payments/checkout', tone: 'green', icon: '💳', label: 'Payments Checkout', featureKey: FEATURE_KEYS.paymentsCheckout },
         { to: '/tenant/payments/admin', tone: 'green', icon: '🏦', label: 'Payments Admin', featureKey: FEATURE_KEYS.paymentsAdmin }
-      ].filter((item) => hasRoleAccess(role, item.featureKey)),
+      ].filter((item) => canShowItem(role, item)),
     [role]
   );
 
   const settingsItems = useMemo(
-    () =>
-      [
-        { to: '/tenant/users', tone: 'orange', icon: '👥', label: 'Users', featureKey: FEATURE_KEYS.users },
-        { to: '/tenant/modules', tone: 'orange', icon: '🧩', label: 'Modules', featureKey: FEATURE_KEYS.modules },
-        { to: '/tenant/integrations', tone: 'orange', icon: '🔌', label: 'Integrations', featureKey: FEATURE_KEYS.integrations },
-        { to: '/tenant/branding', tone: 'orange', icon: '🎨', label: 'Branding', featureKey: FEATURE_KEYS.branding },
-        { to: '/tenant/system-status', tone: 'orange', icon: '🖥', label: 'System Status', featureKey: FEATURE_KEYS.systemStatus }
-      ].filter((item) => hasRoleAccess(role, item.featureKey)),
-    [role]
-  );
-
+  () =>
+    [
+      { to: '/tenant/users', tone: 'orange', icon: '👥', label: 'Users', featureKey: FEATURE_KEYS.users },
+      { to: '/tenant/modules', tone: 'orange', icon: '🧩', label: 'Modules', featureKey: FEATURE_KEYS.modules },
+      { to: '/tenant/integrations', tone: 'orange', icon: '🔌', label: 'Integrations', featureKey: FEATURE_KEYS.integrations },
+      { to: '/tenant/branding', tone: 'orange', icon: '🎨', label: 'Branding', featureKey: FEATURE_KEYS.branding },
+      { to: '/tenant/system-status', tone: 'orange', icon: '🖥', label: 'System Status', featureKey: FEATURE_KEYS.systemStatus },
+      { to: '/tenant/live-verification', tone: 'orange', icon: '🩺', label: 'Live Verification', featureKey: FEATURE_KEYS.systemStatus },
+      { to: '/tenant/fail-drilldown', tone: 'orange', icon: '🧯', label: 'Fail Drilldown', featureKey: FEATURE_KEYS.systemStatus },
+      { to: '/tenant/import-center', tone: 'orange', icon: '📥', label: 'Import Center', featureKey: FEATURE_KEYS.integrations },
+      { to: '/tenant/production-audit', tone: 'orange', icon: '🧪', label: 'Production Audit', featureKey: FEATURE_KEYS.systemStatus },
+      { to: '/tenant/import-history', tone: 'orange', icon: '🕘', label: 'Import History', featureKey: FEATURE_KEYS.integrations }
+    ].filter((item) => canShowItem(role, item)),
+  [role]
+);
   return (
     <div
       style={{

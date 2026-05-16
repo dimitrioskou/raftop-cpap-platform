@@ -1,0 +1,69 @@
+const express = require('express');
+
+const {
+  listPatientSignals,
+  createPatientSignal,
+  updatePatientSignalStatus
+} = require('../../services/patientSignalsService');
+
+const router = express.Router();
+
+/**
+ * IMPORTANT:
+ * This route OVERRIDES any previous ATLAS writeback-based implementation
+ */
+
+router.get('/', async (req, res) => {
+  try {
+    const payload = await listPatientSignals(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[patient-signals NEW] GET failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'PATIENT_SIGNALS_DB_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/', async (req, res) => {
+  try {
+    const payload = await createPatientSignal(req);
+    return res.status(201).json(payload);
+  } catch (error) {
+    console.error('[patient-signals NEW] POST failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'PATIENT_SIGNAL_CREATE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const payload = await updatePatientSignalStatus(req);
+
+    if (!payload.ok) {
+      return res.status(404).json(payload);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('[patient-signals NEW] PATCH failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'PATIENT_SIGNAL_UPDATE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;

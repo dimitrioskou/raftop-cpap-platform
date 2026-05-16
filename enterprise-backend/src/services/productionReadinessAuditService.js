@@ -1,0 +1,705 @@
+const db = require('./db');
+
+const DEFAULT_TIMEOUT_MS = 6000;
+
+function normalizeTenantId(value) {
+  return String(value || 'demo-tenant')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'demo-tenant';
+}
+
+function getBaseUrl(req) {
+  const fromEnv = process.env.INTERNAL_BACKEND_URL || process.env.BACKEND_INTERNAL_URL;
+
+  if (fromEnv) {
+    return String(fromEnv).replace(/\/$/, '');
+  }
+
+  const port = process.env.PORT || 5001;
+
+  return `http://localhost:${port}`;
+}
+
+function maskBoolean(value) {
+  return Boolean(String(value || '').trim());
+}
+
+function getSuperAdminKey(req) {
+  return (
+    req.headers['x-super-admin-key'] ||
+    process.env.SUPER_ADMIN_API_KEY ||
+    ''
+  );
+}
+
+function getDangerousDevControlsHeader(req) {
+  return String(req.headers['x-frontend-dangerous-dev-controls'] || 'false').toLowerCase() === 'true';
+}
+
+function classifyStatus({ ok, critical, warning }) {
+  if (!ok && critical) return 'FAIL';
+  if (!ok) return 'WARN';
+  if (warning) return 'WARN';
+  return 'PASS';
+}
+
+function buildCheck({
+  group,
+  name,
+  status,
+  critical = false,
+  message = '',
+  details = {},
+  nextAction = null
+}) {
+  return {
+    group,
+    name,
+    status,
+    critical: critical === true,
+    message,
+    details,
+    nextAction,
+    generatedAt: new Date().toISOString()
+  };
+}
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = $1
+    ) AS exists
+    `,
+    [tableName]
+  );
+
+  return result.rows[0]?.exists === true;
+}
+
+async function safeCountTable(tableName, columnName = '*') {
+  try {
+    const exists = await tableExists(tableName);
+
+    if (!exists) {
+      return {
+        ok: false,
+        exists: false,
+        count: 0,
+        error: `${tableName} table does not exist`
+      };
+    }
+
+    const result = await db.query(`
+      SELECT COUNT(${columnName})::int AS count
+      FROM ${tableName}
+    `);
+
+    return {
+      ok: true,
+      exists: true,
+      count: Number(result.rows[0]?.count || 0),
+      error: null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      exists: false,
+      count: 0,
+      error: error.message
+    };
+  }
+}
+
+async function checkDatabaseConnection() {
+  try {
+    const result = await db.query('SELECT NOW() AS now');
+
+    return buildCheck({
+      group: 'backend',
+      name: 'Database Connection',
+      status: 'PASS',
+      critical: true,
+      message: 'Database connection is healthy.',
+      details: {
+        now: result.rows[0]?.now || null
+      }
+    });
+  } catch (error) {
+    return buildCheck({
+      group: 'backend',
+      name: 'Database Connection',
+      status: 'FAIL',
+      critical: true,
+      message: 'Database connection failed.',
+      details: {
+        error: error.message
+      },
+      nextAction: 'Fix DATABASE_URL, SSL settings, Render/Neon/Supabase connectivity, or database availability.'
+    });
+  }
+}
+
+function checkEnvironmentConfig() {
+  const checks = [];
+
+  const databaseUrlExists = maskBoolean(process.env.DATABASE_URL);
+  const jwtSecretExists = maskBoolean(process.env.JWT_SECRET);
+  const superAdminKeyExists = maskBoolean(process.env.SUPER_ADMIN_API_KEY);
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const port = process.env.PORT || 5001;
+
+  checks.push(
+    buildCheck({
+      group: 'config',
+      name: 'DATABASE_URL configured',
+      status: classifyStatus({
+        ok: databaseUrlExists,
+        critical: true
+      }),
+      critical: true,
+      message: databaseUrlExists
+        ? 'DATABASE_URL exists.'
+        : 'DATABASE_URL is missing.',
+      details: {
+        configured: databaseUrlExists
+      },
+      nextAction: databaseUrlExists ? null : 'Add DATABASE_URL to enterprise-backend/.env or production environment variables.'
+    })
+  );
+
+  checks.push(
+    buildCheck({
+      group: 'config',
+      name: 'JWT_SECRET configured',
+      status: classifyStatus({
+        ok: jwtSecretExists,
+        critical: true
+      }),
+      critical: true,
+      message: jwtSecretExists
+        ? 'JWT_SECRET exists.'
+        : 'JWT_SECRET is missing.',
+      details: {
+        configured: jwtSecretExists
+      },
+      nextAction: jwtSecretExists ? null : 'Add JWT_SECRET before production. Do not use a weak/default secret.'
+    })
+  );
+
+  checks.push(
+    buildCheck({
+      group: 'config',
+      name: 'SUPER_ADMIN_API_KEY configured',
+      status: classifyStatus({
+        ok: superAdminKeyExists,
+        critical: true
+      }),
+      critical: true,
+      message: superAdminKeyExists
+        ? 'SUPER_ADMIN_API_KEY exists.'
+        : 'SUPER_ADMIN_API_KEY is missing.',
+      details: {
+        configured: superAdminKeyExists
+      },
+      nextAction: superAdminKeyExists ? null : 'Add SUPER_ADMIN_API_KEY to backend .env and frontend secure configuration.'
+    })
+  );
+
+  checks.push(
+    buildCheck({
+      group: 'config',
+      name: 'NODE_ENV',
+      status: nodeEnv === 'production' ? 'PASS' : 'WARN',
+      critical: false,
+      message:
+        nodeEnv === 'production'
+          ? 'NODE_ENV is production.'
+          : 'NODE_ENV is not production. This is acceptable locally, not for deployment.',
+      details: {
+        nodeEnv,
+        port
+      },
+      nextAction:
+        nodeEnv === 'production'
+          ? null
+          : 'For production deployment set NODE_ENV=production.'
+    })
+  );
+
+  return checks;
+}
+
+function checkFrontendSafety(req) {
+  const dangerousDevControlsEnabled = getDangerousDevControlsHeader(req);
+
+  return buildCheck({
+    group: 'frontend',
+    name: 'Dangerous Dev Controls',
+    status: dangerousDevControlsEnabled ? 'FAIL' : 'PASS',
+    critical: true,
+    message: dangerousDevControlsEnabled
+      ? 'Dangerous dev controls appear to be enabled.'
+      : 'Dangerous dev controls are OFF.',
+    details: {
+      dangerousDevControlsEnabled
+    },
+    nextAction: dangerousDevControlsEnabled
+      ? 'Set REACT_APP_SHOW_DANGEROUS_DEV_CONTROLS=false and remove localStorage raftop_show_dangerous_dev_controls.'
+      : null
+  });
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+
+    let json = null;
+    let parseFailed = false;
+
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (error) {
+      parseFailed = true;
+    }
+
+    return {
+      ok: response.ok,
+      statusCode: response.status,
+      json,
+      text,
+      parseFailed,
+      error: null,
+      timedOut: false
+    };
+  } catch (error) {
+    const timedOut =
+      error.name === 'AbortError' ||
+      String(error.message || '').toLowerCase().includes('aborted');
+
+    return {
+      ok: false,
+      statusCode: 0,
+      json: null,
+      text: '',
+      parseFailed: false,
+      error: error.message || String(error),
+      timedOut
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function extractReadinessStatus(json) {
+  if (!json || typeof json !== 'object') {
+    return null;
+  }
+
+  if (json.readinessStatus) {
+    return String(json.readinessStatus).toUpperCase();
+  }
+
+  if (json.summary?.readinessStatus) {
+    return String(json.summary.readinessStatus).toUpperCase();
+  }
+
+  if (json.summary?.status) {
+    return String(json.summary.status).toUpperCase();
+  }
+
+  if (
+    json.summary &&
+    Number(json.summary.criticalFailed || 0) === 0 &&
+    Number(json.summary.failed || 0) === 0 &&
+    Number(json.summary.routeNotFound || 0) === 0 &&
+    Number(json.summary.serverErrors || 0) === 0
+  ) {
+    return 'READY';
+  }
+
+  if (
+    json.summary &&
+    Number(json.summary.criticalFailed || 0) === 0 &&
+    Number(json.summary.failed || 0) === 0
+  ) {
+    return 'NEEDS_ATTENTION';
+  }
+
+  return null;
+}
+
+function endpointCheckFromResponse({
+  group,
+  name,
+  response,
+  critical,
+  expectedReadiness = null,
+  nextAction = null
+}) {
+  const readiness = extractReadinessStatus(response.json);
+  const routeNotFound =
+    response.statusCode === 404 ||
+    /route not found/i.test(String(response.json?.message || response.text || ''));
+
+  const serverError = response.statusCode >= 500;
+  const nonJson = response.parseFailed === true;
+
+  let status = 'PASS';
+  let message = 'Endpoint returned a healthy response.';
+
+  if (response.timedOut) {
+    status = critical ? 'FAIL' : 'WARN';
+    message = 'Endpoint timed out.';
+  } else if (response.error) {
+    status = critical ? 'FAIL' : 'WARN';
+    message = response.error;
+  } else if (routeNotFound) {
+    status = critical ? 'FAIL' : 'WARN';
+    message = 'Endpoint returned route not found.';
+  } else if (serverError) {
+    status = critical ? 'FAIL' : 'WARN';
+    message = 'Endpoint returned server error.';
+  } else if (nonJson) {
+    status = critical ? 'FAIL' : 'WARN';
+    message = 'Endpoint returned non-JSON response.';
+  } else if (!response.ok) {
+    status = critical ? 'FAIL' : 'WARN';
+    message = response.json?.message || response.json?.error || `HTTP ${response.statusCode}`;
+  } else if (
+    expectedReadiness &&
+    String(readiness || '').toUpperCase() !== String(expectedReadiness).toUpperCase()
+  ) {
+    status = 'WARN';
+    message = `Endpoint readiness is ${readiness || 'UNKNOWN'}, expected ${expectedReadiness}.`;
+  }
+
+  return buildCheck({
+    group,
+    name,
+    status,
+    critical,
+    message,
+    details: {
+      statusCode: response.statusCode,
+      readinessStatus: readiness,
+      phase: response.json?.phase || null,
+      summary: response.json?.summary || null,
+      stats: response.json?.stats || null,
+      error: response.json?.error || response.error || null
+    },
+    nextAction: status === 'PASS' ? null : nextAction
+  });
+}
+
+async function checkInternalEndpoints(req, tenantId, superAdminKey) {
+  const baseUrl = getBaseUrl(req);
+
+  const commonHeaders = {
+    Accept: 'application/json',
+    'x-tenant-id': tenantId,
+    'x-super-admin-key': superAdminKey
+  };
+
+  const tests = [
+    {
+      group: 'backend',
+      name: 'Backend Health Endpoint',
+      path: '/api/health',
+      critical: true,
+      expectedReadiness: null,
+      nextAction: 'Fix backend boot, server.js, or running port.'
+    },
+    {
+      group: 'system',
+      name: 'SaaS Stability Audit',
+      path: `/api/system/saas-stability-audit?tenantId=${encodeURIComponent(tenantId)}`,
+      critical: true,
+      expectedReadiness: 'READY',
+      nextAction: 'Open /system/saas-stability-audit and fix any failed SaaS endpoints.'
+    },
+    {
+      group: 'system',
+      name: 'Route Stability Audit',
+      path: '/api/system/route-stability-audit',
+      critical: true,
+      expectedReadiness: 'READY',
+      nextAction: 'Open /system/stability and fix missing routes, 500s, or fallback routes.'
+    },
+    {
+      group: 'system',
+      name: 'Monitoring History',
+      path: '/api/system/monitoring/history',
+      critical: false,
+      expectedReadiness: null,
+      nextAction: 'Check system monitoring runner and monitoring_history table.'
+    },
+    {
+      group: 'system',
+      name: 'System Alerts',
+      path: '/api/system/alerts',
+      critical: false,
+      expectedReadiness: null,
+      nextAction: 'Check system alert engine and open alerts.'
+    },
+    {
+      group: 'super_admin',
+      name: 'Super Admin Subscriptions',
+      path: '/api/super-admin/subscriptions',
+      critical: true,
+      expectedReadiness: null,
+      nextAction: 'Check x-super-admin-key, super admin routes, and subscription service.'
+    },
+    {
+      group: 'super_admin',
+      name: 'Super Admin Tenant Profiles',
+      path: '/api/super-admin/tenant-profiles',
+      critical: true,
+      expectedReadiness: null,
+      nextAction: 'Check tenant profile route and profile backfill service.'
+    },
+    {
+      group: 'super_admin',
+      name: 'Super Admin Audit Logs',
+      path: '/api/super-admin/audit-logs?limit=20',
+      critical: true,
+      expectedReadiness: null,
+      nextAction: 'Check audit log route and audit log table.'
+    }
+  ];
+
+  const checks = [];
+
+  for (const test of tests) {
+    const response = await fetchWithTimeout(`${baseUrl}${test.path}`, {
+      method: 'GET',
+      headers: commonHeaders
+    });
+
+    checks.push(
+      endpointCheckFromResponse({
+        group: test.group,
+        name: test.name,
+        response,
+        critical: test.critical,
+        expectedReadiness: test.expectedReadiness,
+        nextAction: test.nextAction
+      })
+    );
+  }
+
+  return checks;
+}
+
+async function checkTenantProfileSubscriptionAlignment() {
+  const subscriptionCount = await safeCountTable('tenant_subscriptions', '*');
+  const profileCount = await safeCountTable('tenant_profiles', '*');
+
+  const ok =
+    subscriptionCount.ok &&
+    profileCount.ok &&
+    subscriptionCount.count === profileCount.count;
+
+  return buildCheck({
+    group: 'data',
+    name: 'Tenant Profiles match Subscriptions',
+    status: ok ? 'PASS' : 'FAIL',
+    critical: true,
+    message: ok
+      ? 'Tenant profile count matches subscription count.'
+      : 'Tenant profile count does not match subscription count.',
+    details: {
+      subscriptions: subscriptionCount,
+      profiles: profileCount
+    },
+    nextAction: ok
+      ? null
+      : 'Open /super-admin/tenant-profiles and refresh to trigger profile backfill from subscriptions.'
+  });
+}
+
+async function checkOpenAlerts(req, tenantId, superAdminKey) {
+  const baseUrl = getBaseUrl(req);
+
+  const response = await fetchWithTimeout(`${baseUrl}/api/system/alerts`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'x-tenant-id': tenantId,
+      'x-super-admin-key': superAdminKey
+    }
+  });
+
+  if (!response.ok || !response.json) {
+    return buildCheck({
+      group: 'system',
+      name: 'Open Alerts Clean',
+      status: 'WARN',
+      critical: false,
+      message: 'Could not verify system alerts cleanly.',
+      details: {
+        statusCode: response.statusCode,
+        error: response.error || response.json?.error || null
+      },
+      nextAction: 'Open /system/alerts and verify current alerts.'
+    });
+  }
+
+  const stats = response.json.stats || {};
+  const open =
+    Number(stats.open || 0) ||
+    Number(stats.criticalOpen || 0) ||
+    Number(stats.highOpen || 0) ||
+    0;
+
+  return buildCheck({
+    group: 'system',
+    name: 'Open Alerts Clean',
+    status: open > 0 ? 'WARN' : 'PASS',
+    critical: false,
+    message: open > 0
+      ? 'There are open system alerts.'
+      : 'No open critical alert detected.',
+    details: {
+      stats
+    },
+    nextAction: open > 0
+      ? 'Open /system/alerts, review active alerts, acknowledge or fix them.'
+      : null
+  });
+}
+
+function buildSummary(checks) {
+  const total = checks.length;
+  const passed = checks.filter((item) => item.status === 'PASS').length;
+  const warned = checks.filter((item) => item.status === 'WARN').length;
+  const failed = checks.filter((item) => item.status === 'FAIL').length;
+  const criticalFailed = checks.filter((item) => item.status === 'FAIL' && item.critical).length;
+  const criticalWarnings = checks.filter((item) => item.status === 'WARN' && item.critical).length;
+
+  return {
+    total,
+    passed,
+    warned,
+    failed,
+    criticalFailed,
+    criticalWarnings,
+    configFailures: checks.filter((item) => item.group === 'config' && item.status === 'FAIL').length,
+    backendFailures: checks.filter((item) => item.group === 'backend' && item.status === 'FAIL').length,
+    frontendFailures: checks.filter((item) => item.group === 'frontend' && item.status === 'FAIL').length,
+    dataFailures: checks.filter((item) => item.group === 'data' && item.status === 'FAIL').length,
+    systemWarnings: checks.filter((item) => item.group === 'system' && item.status === 'WARN').length
+  };
+}
+
+function buildNextBestActions(checks, summary) {
+  const actions = [];
+
+  const failingCritical = checks.filter((item) => item.status === 'FAIL' && item.critical);
+  const warnings = checks.filter((item) => item.status === 'WARN');
+
+  for (const check of failingCritical.slice(0, 5)) {
+    actions.push({
+      priority: 'HIGH',
+      type: 'CRITICAL_RELEASE_BLOCKER',
+      title: `Fix: ${check.name}`,
+      description: check.nextAction || check.message
+    });
+  }
+
+  for (const check of warnings.slice(0, 5)) {
+    actions.push({
+      priority: check.critical ? 'HIGH' : 'MEDIUM',
+      type: 'RELEASE_WARNING',
+      title: `Review: ${check.name}`,
+      description: check.nextAction || check.message
+    });
+  }
+
+  if (summary.criticalFailed === 0 && summary.failed === 0 && summary.warned === 0) {
+    actions.push({
+      priority: 'LOW',
+      type: 'RELEASE_CANDIDATE_READY',
+      title: 'Proceed to Release Candidate checklist',
+      description: 'All production readiness checks passed. Continue to Phase 23.2 production config hardening.'
+    });
+  }
+
+  if (summary.criticalFailed === 0 && summary.failed === 0 && summary.warned > 0) {
+    actions.push({
+      priority: 'MEDIUM',
+      type: 'RELEASE_CANDIDATE_WITH_WARNINGS',
+      title: 'Release candidate possible with warnings',
+      description: 'No hard blocker was found, but warnings should be reviewed before external demo or production deployment.'
+    });
+  }
+
+  return actions;
+}
+
+async function runProductionReadinessAudit(req) {
+  const tenantId = normalizeTenantId(
+    req.headers['x-tenant-id'] ||
+      req.query.tenantId ||
+      req.query.tenant_id ||
+      'demo-tenant'
+  );
+
+  const superAdminKey = getSuperAdminKey(req);
+  const baseUrl = getBaseUrl(req);
+
+  const checks = [];
+
+  checks.push(...checkEnvironmentConfig());
+  checks.push(checkFrontendSafety(req));
+  checks.push(await checkDatabaseConnection());
+  checks.push(await checkTenantProfileSubscriptionAlignment());
+
+  const endpointChecks = await checkInternalEndpoints(req, tenantId, superAdminKey);
+  checks.push(...endpointChecks);
+
+  checks.push(await checkOpenAlerts(req, tenantId, superAdminKey));
+
+  const summary = buildSummary(checks);
+
+  const readinessStatus =
+    summary.criticalFailed > 0
+      ? 'BLOCKED'
+      : summary.failed > 0
+        ? 'NEEDS_FIX'
+        : summary.warned > 0
+          ? 'NEEDS_ATTENTION'
+          : 'READY';
+
+  return {
+    ok: summary.criticalFailed === 0,
+    fallback: false,
+    source: 'runtime-production-readiness-audit',
+    phase: '23.1B-production-readiness-route-stability-mapping-fix',
+    tenantId,
+    baseUrl,
+    readinessStatus,
+    summary,
+    checks,
+    nextBestActions: buildNextBestActions(checks, summary),
+    generatedAt: new Date().toISOString()
+  };
+}
+
+module.exports = {
+  runProductionReadinessAudit
+};

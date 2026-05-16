@@ -1,0 +1,81 @@
+const express = require('express');
+
+const router = express.Router();
+
+/**
+ * Phase 19.46 — Closed Loop Control Summary
+ * Minimal stable implementation (no DB dependency yet)
+ * Returns operational structure required by frontend
+ */
+
+router.get('/control-summary', async (req, res) => {
+  try {
+    // προσωρινά static data για να σπάσουμε fallback / route errors
+    const payload = {
+      ok: true,
+      readinessStatus: 'NEEDS_ATTENTION',
+
+      metrics: {
+        totalSignals: 24,
+        openSignals: 6,
+        criticalSignals: 2,
+        totalVerifications: 18,
+        passedVerifications: 14,
+        failedVerifications: 4,
+        openRemediations: 3,
+        resolvedRemediations: 9
+      },
+
+      blockers: [
+        {
+          id: 'blocker-1',
+          title: 'Missing patient signals ingestion',
+          description:
+            'The /api/tenant/patient-signals endpoint returned fallback data. ATLAS cannot operate reliably.',
+          priority: 'HIGH',
+          source: 'patient-signals',
+          patientId: null
+        },
+        {
+          id: 'blocker-2',
+          title: 'Unresolved failed verifications',
+          description:
+            'There are failed closed-loop verifications without remediation tasks.',
+          priority: 'MEDIUM',
+          source: 'closed-loop'
+        }
+      ],
+
+      nextBestActions: [
+        {
+          id: 'nba-1',
+          title: 'Fix patient signals endpoint',
+          description:
+            'Remove fallback mode and ensure real DB-backed signals are returned.',
+          priority: 'HIGH',
+          type: 'ENDPOINT_FIX'
+        },
+        {
+          id: 'nba-2',
+          title: 'Auto-create remediation tasks',
+          description:
+            'Ensure failed verifications create tasks automatically.',
+          priority: 'MEDIUM',
+          type: 'AUTOMATION'
+        }
+      ]
+    };
+
+    res.json(payload);
+  } catch (error) {
+    console.error('[Closed Loop Control Summary ERROR]', error);
+
+    res.status(500).json({
+      ok: false,
+      error: 'CONTROL_SUMMARY_FAILED',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;

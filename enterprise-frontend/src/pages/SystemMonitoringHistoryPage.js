@@ -1,0 +1,583 @@
+import React, { useEffect, useMemo, useState } from 'react';
+
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
+
+function statusStyle(status) {
+  const value = String(status || '').toUpperCase();
+
+  if (value === 'HEALTHY' || value === 'READY') {
+    return {
+      background: '#dcfce7',
+      color: '#166534',
+      border: '1px solid #bbf7d0'
+    };
+  }
+
+  if (value === 'DEGRADED' || value === 'NEEDS_ATTENTION') {
+    return {
+      background: '#fef3c7',
+      color: '#92400e',
+      border: '1px solid #fde68a'
+    };
+  }
+
+  if (value === 'BLOCKED' || value === 'CRITICAL') {
+    return {
+      background: '#fee2e2',
+      color: '#991b1b',
+      border: '1px solid #fecaca'
+    };
+  }
+
+  return {
+    background: '#f1f5f9',
+    color: '#334155',
+    border: '1px solid #cbd5e1'
+  };
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+
+  try {
+    return new Date(value).toLocaleString();
+  } catch (error) {
+    return String(value);
+  }
+}
+
+function MetricCard({ label, value, tone }) {
+  const style =
+    tone === 'danger'
+      ? { background: '#fff1f2', border: '1px solid #fecdd3' }
+      : tone === 'warning'
+        ? { background: '#fffbeb', border: '1px solid #fde68a' }
+        : tone === 'success'
+          ? { background: '#f0fdf4', border: '1px solid #bbf7d0' }
+          : { background: '#ffffff', border: '1px solid #e2e8f0' };
+
+  return (
+    <div
+      style={{
+        ...style,
+        borderRadius: 20,
+        padding: 20,
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)'
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          color: '#64748b',
+          fontWeight: 900,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase'
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 34,
+          fontWeight: 900,
+          color: '#0f172a'
+        }}
+      >
+        {value ?? 0}
+      </div>
+    </div>
+  );
+}
+
+export default function SystemMonitoringHistoryPage() {
+  const [state, setState] = useState({
+    loading: true,
+    running: false,
+    error: '',
+    payload: null
+  });
+
+  const [showRaw, setShowRaw] = useState(false);
+  const [limit, setLimit] = useState(25);
+
+  async function loadHistory(nextLimit) {
+    const effectiveLimit = nextLimit || limit;
+
+    try {
+      setState((prev) => ({
+        ...prev,
+        loading: true,
+        error: ''
+      }));
+
+      const response = await fetch(
+        `${API_BASE}/api/system/monitoring/history?limit=${encodeURIComponent(effectiveLimit)}`,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json'
+          }
+        }
+      );
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${response.status}`);
+      }
+
+      setState({
+        loading: false,
+        running: false,
+        error: '',
+        payload: json
+      });
+    } catch (error) {
+      setState({
+        loading: false,
+        running: false,
+        error: error.message || 'Failed to load monitoring history.',
+        payload: null
+      });
+    }
+  }
+
+  async function runMonitoringAndRefresh() {
+    try {
+      setState((prev) => ({
+        ...prev,
+        running: true,
+        error: ''
+      }));
+
+      const response = await fetch(`${API_BASE}/api/system/monitoring/run-now`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json'
+        }
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${response.status}`);
+      }
+
+      await loadHistory(limit);
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        running: false,
+        loading: false,
+        error: error.message || 'Failed to run monitoring.'
+      }));
+    }
+  }
+
+  useEffect(() => {
+    async function initialLoad() {
+      await loadHistory(25);
+    }
+
+    initialLoad();
+  }, []);
+
+  const payload = state.payload || {};
+  const stats = payload.stats || {};
+  const history = Array.isArray(payload.history) ? payload.history : [];
+
+  const latest = history[0] || null;
+
+  const statusCounts = useMemo(() => {
+    return history.reduce(
+      (acc, item) => {
+        const status = String(item.status || 'UNKNOWN').toUpperCase();
+
+        if (status === 'HEALTHY') acc.healthy += 1;
+        else if (status === 'DEGRADED') acc.degraded += 1;
+        else if (status === 'BLOCKED') acc.blocked += 1;
+        else acc.unknown += 1;
+
+        return acc;
+      },
+      {
+        healthy: 0,
+        degraded: 0,
+        blocked: 0,
+        unknown: 0
+      }
+    );
+  }, [history]);
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#f8fafc',
+        padding: 32,
+        fontFamily: 'Arial, sans-serif',
+        color: '#0f172a'
+      }}
+    >
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <section
+          style={{
+            background:
+              latest?.status === 'BLOCKED'
+                ? 'linear-gradient(135deg, #7f1d1d 0%, #b91c1c 55%, #ef4444 100%)'
+                : latest?.status === 'DEGRADED'
+                  ? 'linear-gradient(135deg, #78350f 0%, #b45309 55%, #f59e0b 100%)'
+                  : 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%)',
+            color: '#ffffff',
+            borderRadius: 28,
+            padding: 32,
+            boxShadow: '0 20px 60px rgba(15, 23, 42, 0.20)'
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 900,
+              letterSpacing: '0.2em',
+              opacity: 0.88
+            }}
+          >
+            RAFTOP CPAP CARE Pro / ATLAS
+          </div>
+
+          <h1 style={{ margin: '14px 0 8px', fontSize: 38, lineHeight: 1.1 }}>
+            Monitoring History
+          </h1>
+
+          <p style={{ maxWidth: 900, fontSize: 15, opacity: 0.9 }}>
+            Persistent health timeline for backend stability, alerts and monitoring snapshots.
+            This proves whether the platform stays healthy over time.
+          </p>
+
+          <div
+            style={{
+              marginTop: 22,
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              flexWrap: 'wrap'
+            }}
+          >
+            <span
+              style={{
+                ...statusStyle(latest?.status || 'UNKNOWN'),
+                borderRadius: 999,
+                padding: '10px 16px',
+                fontWeight: 900,
+                fontSize: 13
+              }}
+            >
+              Latest: {latest?.status || 'UNKNOWN'}
+            </span>
+
+            <button
+              onClick={() => loadHistory(limit)}
+              disabled={state.loading}
+              style={headerButton}
+            >
+              Refresh History
+            </button>
+
+            <button
+              onClick={runMonitoringAndRefresh}
+              disabled={state.running}
+              style={headerButton}
+            >
+              {state.running ? 'Running...' : 'Run Monitoring'}
+            </button>
+
+            <select
+              value={limit}
+              onChange={(event) => {
+                const nextLimit = Number(event.target.value);
+                setLimit(nextLimit);
+                loadHistory(nextLimit);
+              }}
+              style={{
+                border: '1px solid rgba(255,255,255,0.35)',
+                background: 'rgba(255,255,255,0.14)',
+                color: '#ffffff',
+                padding: '10px 14px',
+                borderRadius: 14,
+                fontWeight: 900
+              }}
+            >
+              <option style={{ color: '#0f172a' }} value={10}>Last 10</option>
+              <option style={{ color: '#0f172a' }} value={25}>Last 25</option>
+              <option style={{ color: '#0f172a' }} value={50}>Last 50</option>
+              <option style={{ color: '#0f172a' }} value={100}>Last 100</option>
+            </select>
+          </div>
+        </section>
+
+        {state.loading && (
+          <div
+            style={{
+              marginTop: 24,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: 20,
+              padding: 24
+            }}
+          >
+            Loading monitoring history...
+          </div>
+        )}
+
+        {!state.loading && state.error && (
+          <div
+            style={{
+              marginTop: 24,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#991b1b',
+              borderRadius: 20,
+              padding: 24
+            }}
+          >
+            <strong>Monitoring History Error</strong>
+            <div style={{ marginTop: 8 }}>{state.error}</div>
+          </div>
+        )}
+
+        {!state.loading && !state.error && payload && (
+          <>
+            <section
+              style={{
+                marginTop: 24,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 16
+              }}
+            >
+              <MetricCard label="Total Snapshots" value={stats.total} />
+              <MetricCard label="Healthy" value={stats.healthy} tone="success" />
+              <MetricCard
+                label="Degraded"
+                value={stats.degraded}
+                tone={Number(stats.degraded || 0) > 0 ? 'warning' : 'success'}
+              />
+              <MetricCard
+                label="Blocked"
+                value={stats.blocked}
+                tone={Number(stats.blocked || 0) > 0 ? 'danger' : 'success'}
+              />
+              <MetricCard label="Loaded Healthy" value={statusCounts.healthy} />
+              <MetricCard label="Loaded Degraded" value={statusCounts.degraded} />
+              <MetricCard label="Loaded Blocked" value={statusCounts.blocked} />
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24,
+                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.05)'
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Latest Snapshot</h2>
+
+              {!latest ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 18,
+                    padding: 18
+                  }}
+                >
+                  No monitoring snapshot found. Click “Run Monitoring”.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: 16,
+                    borderRadius: 18,
+                    padding: 18,
+                    ...statusStyle(latest.status)
+                  }}
+                >
+                  <strong>{latest.message || 'No message.'}</strong>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                      gap: 10,
+                      fontSize: 13
+                    }}
+                  >
+                    <span>Status: {latest.status}</span>
+                    <span>Mode: {latest.mode || '-'}</span>
+                    <span>Phase: {latest.phase || '-'}</span>
+                    <span>Generated: {formatDate(latest.generatedAt)}</span>
+                    <span>Stored: {formatDate(latest.storedAt)}</span>
+                    <span>Alerts: {Array.isArray(latest.alerts) ? latest.alerts.length : 0}</span>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24,
+                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.05)'
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Health Timeline</h2>
+              <p style={{ color: '#64748b', marginTop: 8 }}>
+                Each row is a stored monitoring snapshot from the database.
+              </p>
+
+              <div style={{ marginTop: 16, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      <th style={th}>Status</th>
+                      <th style={th}>Mode</th>
+                      <th style={th}>Passed</th>
+                      <th style={th}>Failed</th>
+                      <th style={th}>Warnings</th>
+                      <th style={th}>Alerts</th>
+                      <th style={th}>Generated</th>
+                      <th style={th}>Stored</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {history.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" style={td}>
+                          No history available.
+                        </td>
+                      </tr>
+                    ) : (
+                      history.map((item) => {
+                        const summary = item.summary || {};
+                        const alerts = Array.isArray(item.alerts) ? item.alerts : [];
+
+                        return (
+                          <tr key={item.id}>
+                            <td style={td}>
+                              <span
+                                style={{
+                                  ...statusStyle(item.status),
+                                  borderRadius: 999,
+                                  padding: '5px 10px',
+                                  fontWeight: 900,
+                                  fontSize: 12
+                                }}
+                              >
+                                {item.status}
+                              </span>
+                            </td>
+                            <td style={td}>{item.mode || '-'}</td>
+                            <td style={td}>{summary.passed ?? '-'}</td>
+                            <td style={td}>{summary.failed ?? '-'}</td>
+                            <td style={td}>{summary.warned ?? '-'}</td>
+                            <td style={td}>{alerts.length}</td>
+                            <td style={td}>{formatDate(item.generatedAt)}</td>
+                            <td style={td}>{formatDate(item.storedAt)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section
+              style={{
+                marginTop: 24,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 24,
+                padding: 24
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 24 }}>Debug Payload</h2>
+
+              <button
+                onClick={() => setShowRaw(!showRaw)}
+                style={{
+                  marginTop: 14,
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  border: 0,
+                  padding: '10px 16px',
+                  borderRadius: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer'
+                }}
+              >
+                {showRaw ? 'Hide JSON' : 'Show JSON'}
+              </button>
+
+              {showRaw && (
+                <pre
+                  style={{
+                    marginTop: 16,
+                    background: '#020617',
+                    color: '#e2e8f0',
+                    padding: 18,
+                    borderRadius: 16,
+                    overflow: 'auto',
+                    maxHeight: 520,
+                    fontSize: 12
+                  }}
+                >
+                  {JSON.stringify(payload, null, 2)}
+                </pre>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const headerButton = {
+  border: '1px solid rgba(255,255,255,0.35)',
+  background: 'rgba(255,255,255,0.14)',
+  color: '#ffffff',
+  padding: '10px 16px',
+  borderRadius: 14,
+  fontWeight: 900,
+  cursor: 'pointer'
+};
+
+const th = {
+  textAlign: 'left',
+  padding: 12,
+  borderBottom: '1px solid #e2e8f0',
+  color: '#475569',
+  fontSize: 12,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em'
+};
+
+const td = {
+  padding: 12,
+  borderBottom: '1px solid #e2e8f0',
+  color: '#334155'
+};

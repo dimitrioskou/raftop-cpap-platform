@@ -1,0 +1,29 @@
+let latestSnapshot = {
+  ok: false,
+  phase: '21-system-monitoring',
+  status: 'UNKNOWN',
+  message: 'No monitoring snapshot has been generated yet.',
+  generatedAt: null,
+  summary: null,
+  alerts: [],
+  source: 'memory-store'
+};
+
+function setLatestSnapshot(snapshot) {
+  latestSnapshot = {
+    ...snapshot,
+    source: 'memory-store',
+    storedAt: new Date().toISOString()
+  };
+
+  return latestSnapshot;
+}
+
+function getLatestSnapshot() {
+  return latestSnapshot;
+}
+
+module.exports = {
+  setLatestSnapshot,
+  getLatestSnapshot
+};

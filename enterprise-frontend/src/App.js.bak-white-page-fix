@@ -1,0 +1,87 @@
+import React from 'react';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Link
+} from 'react-router-dom';
+
+import TenantClosedLoopControlHubPage from './pages/TenantClosedLoopControlHubPage';
+
+function TenantPageNotFound() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', padding: 32 }}>
+      <div
+        style={{
+          maxWidth: 900,
+          margin: '0 auto',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: 24,
+          padding: 32,
+          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.06)'
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: '0.18em',
+            color: '#2563eb',
+            textTransform: 'uppercase'
+          }}
+        >
+          RAFTOP CPAP CARE Pro / ATLAS
+        </div>
+
+        <h1 style={{ marginTop: 12, fontSize: 32, color: '#0f172a' }}>
+          Tenant Page Not Found
+        </h1>
+
+        <p style={{ color: '#475569', fontSize: 15 }}>
+          The tenant route you opened is not mapped yet in App.js.
+        </p>
+
+        <div style={{ marginTop: 24 }}>
+          <Link
+            to="/tenant/closed-loop/control-hub"
+            style={{
+              display: 'inline-block',
+              background: '#0f172a',
+              color: '#ffffff',
+              textDecoration: 'none',
+              padding: '12px 18px',
+              borderRadius: 14,
+              fontWeight: 700
+            }}
+          >
+            Open Closed Loop Control Hub
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RootRedirect() {
+  return <Navigate to="/tenant/closed-loop/control-hub" replace />;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+
+        <Route
+          path="/tenant/closed-loop/control-hub"
+          element={<TenantClosedLoopControlHubPage />}
+        />
+
+        <Route path="/tenant/*" element={<TenantPageNotFound />} />
+        <Route path="*" element={<TenantPageNotFound />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}

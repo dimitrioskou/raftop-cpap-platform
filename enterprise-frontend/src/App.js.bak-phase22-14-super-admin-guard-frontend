@@ -1,0 +1,317 @@
+import React from 'react';
+import {
+  Routes,
+  Route,
+  Navigate,
+  Link
+} from 'react-router-dom';
+
+import SubscriptionStatusBanner from './components/SubscriptionStatusBanner';
+import SubscriptionSoftGuard from './components/SubscriptionSoftGuard';
+import TenantContextSwitcher from './components/TenantContextSwitcher';
+
+import TenantClosedLoopControlHubPage from './pages/TenantClosedLoopControlHubPage';
+import TenantSubscriptionPage from './pages/TenantSubscriptionPage';
+import SuperAdminSubscriptionsPage from './pages/SuperAdminSubscriptionsPage';
+
+import SystemStabilityPage from './pages/SystemStabilityPage';
+import SystemMonitoringPage from './pages/SystemMonitoringPage';
+import SystemAlertsPage from './pages/SystemAlertsPage';
+import SystemMonitoringHistoryPage from './pages/SystemMonitoringHistoryPage';
+import SystemMaintenancePage from './pages/SystemMaintenancePage';
+
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+
+    this.state = {
+      hasError: false,
+      error: null
+    };
+  }
+
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      error
+    };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[RAFTOP FRONTEND ERROR]', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', background: '#f8fafc', padding: 32 }}>
+          <div
+            style={{
+              maxWidth: 900,
+              margin: '0 auto',
+              background: '#ffffff',
+              border: '1px solid #fecaca',
+              borderRadius: 24,
+              padding: 32
+            }}
+          >
+            <h1 style={{ color: '#991b1b' }}>
+              Frontend Runtime Error
+            </h1>
+
+            <p style={{ color: '#475569' }}>
+              Υπάρχει runtime ή import error στο frontend.
+            </p>
+
+            <pre
+              style={{
+                marginTop: 20,
+                background: '#111827',
+                color: '#f9fafb',
+                padding: 16,
+                borderRadius: 12,
+                overflow: 'auto'
+              }}
+            >
+              {String(this.state.error?.message || this.state.error)}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function TenantPageNotFound() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', padding: 32 }}>
+      <div
+        style={{
+          maxWidth: 1120,
+          margin: '0 auto',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: 24,
+          padding: 32,
+          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.06)'
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: '0.18em',
+            color: '#2563eb',
+            textTransform: 'uppercase'
+          }}
+        >
+          RAFTOP CPAP CARE Pro / ATLAS
+        </div>
+
+        <h1 style={{ marginTop: 12, fontSize: 32, color: '#0f172a' }}>
+          Page Not Found
+        </h1>
+
+        <p style={{ color: '#475569', fontSize: 15 }}>
+          The route you opened is not mapped yet in App.js.
+        </p>
+
+        <NavigationLinks />
+      </div>
+    </div>
+  );
+}
+
+function NavigationLinks() {
+  return (
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
+      <Link to="/tenant/closed-loop/control-hub" style={primaryLink}>
+        Control Hub
+      </Link>
+
+      <Link to="/tenant/subscription" style={redLink}>
+        Tenant Subscription
+      </Link>
+
+      <Link to="/super-admin/subscriptions" style={blackLink}>
+        Super Admin Subscriptions
+      </Link>
+
+      <Link to="/system/stability" style={blueLink}>
+        System Stability
+      </Link>
+
+      <Link to="/system/monitoring" style={greenLink}>
+        System Monitoring
+      </Link>
+
+      <Link to="/system/alerts" style={orangeLink}>
+        System Alerts
+      </Link>
+
+      <Link to="/system/history" style={purpleLink}>
+        Monitoring History
+      </Link>
+
+      <Link to="/system/maintenance" style={darkPurpleLink}>
+        System Maintenance
+      </Link>
+    </div>
+  );
+}
+
+function ProtectedTenantPage({ children }) {
+  return (
+    <SubscriptionSoftGuard>
+      {children}
+    </SubscriptionSoftGuard>
+  );
+}
+
+function RootRedirect() {
+  return <Navigate to="/tenant/subscription" replace />;
+}
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <SubscriptionStatusBanner />
+      <TenantContextSwitcher />
+
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+
+        <Route
+          path="/tenant/subscription"
+          element={<TenantSubscriptionPage />}
+        />
+
+        <Route
+          path="/super-admin/subscriptions"
+          element={<SuperAdminSubscriptionsPage />}
+        />
+
+        <Route
+          path="/tenant/closed-loop/control-hub"
+          element={
+            <ProtectedTenantPage>
+              <TenantClosedLoopControlHubPage />
+            </ProtectedTenantPage>
+          }
+        />
+
+        <Route
+          path="/system/stability"
+          element={<SystemStabilityPage />}
+        />
+
+        <Route
+          path="/system/monitoring"
+          element={<SystemMonitoringPage />}
+        />
+
+        <Route
+          path="/system/alerts"
+          element={<SystemAlertsPage />}
+        />
+
+        <Route
+          path="/system/history"
+          element={<SystemMonitoringHistoryPage />}
+        />
+
+        <Route
+          path="/system/maintenance"
+          element={<SystemMaintenancePage />}
+        />
+
+        <Route path="/tenant/*" element={<TenantPageNotFound />} />
+        <Route path="/system/*" element={<TenantPageNotFound />} />
+        <Route path="/super-admin/*" element={<TenantPageNotFound />} />
+        <Route path="*" element={<TenantPageNotFound />} />
+      </Routes>
+    </AppErrorBoundary>
+  );
+}
+
+const primaryLink = {
+  display: 'inline-block',
+  background: '#0f172a',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const redLink = {
+  display: 'inline-block',
+  background: '#b91c1c',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const blackLink = {
+  display: 'inline-block',
+  background: '#111827',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const blueLink = {
+  display: 'inline-block',
+  background: '#2563eb',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const greenLink = {
+  display: 'inline-block',
+  background: '#047857',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const orangeLink = {
+  display: 'inline-block',
+  background: '#ea580c',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const purpleLink = {
+  display: 'inline-block',
+  background: '#7c3aed',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};
+
+const darkPurpleLink = {
+  display: 'inline-block',
+  background: '#4c1d95',
+  color: '#ffffff',
+  textDecoration: 'none',
+  padding: '12px 18px',
+  borderRadius: 14,
+  fontWeight: 700
+};

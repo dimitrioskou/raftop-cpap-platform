@@ -1,41 +1,169 @@
 const express = require('express');
-const { getSubscriptionSnapshot } = require('../../services/subscriptionGuardService');
 
-function resolveAuth() {
-  const noop = (_req, _res, next) => next();
+const {
+  getTenantId,
+  getTenantSubscriptionStatus,
+  updateTenantSubscription,
+  forceSubscriptionStatus
+} = require('../../services/tenantSubscriptionService');
 
-  try {
-    const mod = require('../../middleware/auth');
+const {
+  getTenantSubscriptionUsage,
+  getTenantSubscriptionOverview
+} = require('../../services/tenantSubscriptionUsageService');
 
-    return {
-      requireAuth:
-        mod.requireAuth ||
-        mod.authenticate ||
-        mod.authRequired ||
-        mod.protect ||
-        noop
-    };
-  } catch (error) {
-    return { requireAuth: noop };
-  }
-}
+const {
+  getSubscriptionGuardEventsPayload
+} = require('../../services/tenantSubscriptionGuardEventService');
 
-const { requireAuth } = resolveAuth();
+const {
+  getPlanLimitEventsPayload
+} = require('../../services/tenantPlanLimitEventService');
+
 const router = express.Router();
 
-router.get('/status', requireAuth, async (req, res) => {
+router.get('/status', async (req, res) => {
   try {
-    const snapshot = await getSubscriptionSnapshot(req);
+    const payload = await getTenantSubscriptionStatus(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription status] failed:', error);
 
-    return res.status(200).json({
-      ok: true,
-      ...snapshot
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_STATUS_FAILED',
+      message: error.message
     });
+  }
+});
+
+router.get('/usage', async (req, res) => {
+  try {
+    const payload = await getTenantSubscriptionUsage(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription usage] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_USAGE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.get('/overview', async (req, res) => {
+  try {
+    const payload = await getTenantSubscriptionOverview(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription overview] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_OVERVIEW_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.patch('/status', async (req, res) => {
+  try {
+    const payload = await updateTenantSubscription(req);
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription update] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_UPDATE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.get('/guard-events', async (req, res) => {
+  try {
+    const payload = await getSubscriptionGuardEventsPayload({
+      tenantId: getTenantId(req),
+      limit: req.query.limit || 50
+    });
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription guard-events] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_GUARD_EVENTS_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.get('/limit-events', async (req, res) => {
+  try {
+    const payload = await getPlanLimitEventsPayload({
+      tenantId: getTenantId(req),
+      limit: req.query.limit || 50
+    });
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('[tenant subscription limit-events] failed:', error);
+
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_PLAN_LIMIT_EVENTS_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/force-active', async (req, res) => {
+  try {
+    const payload = await forceSubscriptionStatus(req, 'ACTIVE');
+    return res.json(payload);
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      message: 'Subscription status lookup failed.',
-      error: error.message
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_FORCE_ACTIVE_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/force-expired', async (req, res) => {
+  try {
+    const payload = await forceSubscriptionStatus(req, 'EXPIRED');
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_FORCE_EXPIRED_FAILED',
+      message: error.message
+    });
+  }
+});
+
+router.post('/force-suspended', async (req, res) => {
+  try {
+    const payload = await forceSubscriptionStatus(req, 'SUSPENDED');
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      fallback: false,
+      error: 'TENANT_SUBSCRIPTION_FORCE_SUSPENDED_FAILED',
+      message: error.message
     });
   }
 });
