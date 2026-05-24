@@ -163,30 +163,175 @@
 
           var style = document.createElement("style");
           style.id = "raftop-hard-login-style";
+
           style.innerHTML =
-            "html.raftop-login-mode,html.raftop-login-mode body{margin:0;min-height:100%;font-family:Inter,Arial,sans-serif;background:#07111f!important;}" +
-            "html.raftop-login-mode #root{display:none!important;}" +
-            ".raftop-login-wrap{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#06101f 0%,#0f766e 100%);padding:24px;box-sizing:border-box;}" +
-            ".raftop-login-card{width:100%;max-width:460px;background:#ffffff;border-radius:28px;box-shadow:0 30px 90px rgba(0,0,0,.35);padding:34px;box-sizing:border-box;}" +
-            ".raftop-login-kicker{font-size:12px;font-weight:900;letter-spacing:.16em;color:#0f766e;text-transform:uppercase;margin-bottom:10px;}" +
-            ".raftop-login-title{font-size:30px;line-height:1.1;font-weight:950;color:#07111f;margin:0 0 10px;}" +
-            ".raftop-login-subtitle{font-size:14px;line-height:1.45;color:#475569;margin:0 0 24px;font-weight:700;}" +
-            ".raftop-login-label{display:block;font-size:12px;font-weight:900;color:#334155;text-transform:uppercase;letter-spacing:.08em;margin:14px 0 7px;}" +
-            ".raftop-login-input{width:100%;height:48px;border-radius:14px;border:1px solid #cbd5e1;padding:0 14px;font-size:15px;font-weight:700;box-sizing:border-box;outline:none;background:#fff;color:#0f172a;}" +
-            ".raftop-login-input:focus{border-color:#0f766e;box-shadow:0 0 0 4px rgba(15,118,110,.13);}" +
-            ".raftop-login-button{width:100%;height:50px;margin-top:22px;border:0;border-radius:16px;background:#0f766e;color:#fff;font-size:15px;font-weight:950;cursor:pointer;}" +
-            ".raftop-login-button:disabled{opacity:.65;cursor:not-allowed;}" +
-            ".raftop-login-error{display:none;margin-top:14px;background:#fee2e2;color:#991b1b;border-radius:14px;padding:12px;font-size:13px;font-weight:800;}" +
-            ".raftop-login-note{margin-top:16px;font-size:12px;color:#64748b;line-height:1.45;font-weight:700;}" +
-            ".raftop-login-badge{display:inline-flex;align-items:center;gap:8px;background:#ecfdf5;color:#047857;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:950;margin-top:16px;}";
+            "html.raftop-login-mode,html.raftop-login-mode body{" +
+            "margin:0;" +
+            "min-height:100%;" +
+            "font-family:Inter,Arial,sans-serif;" +
+            "background:#07111f!important;" +
+            "}" +
+
+            "html.raftop-login-mode #root{" +
+            "display:none!important;" +
+            "}" +
+
+            ".raftop-login-wrap{" +
+            "position:fixed;" +
+            "inset:0;" +
+            "z-index:2147483647;" +
+            "display:flex;" +
+            "align-items:center;" +
+            "justify-content:center;" +
+            "background:linear-gradient(135deg,#06101f 0%,#0f766e 100%);" +
+            "padding:24px;" +
+            "box-sizing:border-box;" +
+            "}" +
+
+            ".raftop-login-card{" +
+            "width:100%;" +
+            "max-width:470px;" +
+            "background:#ffffff;" +
+            "border-radius:28px;" +
+            "box-shadow:0 30px 90px rgba(0,0,0,.35);" +
+            "padding:34px;" +
+            "box-sizing:border-box;" +
+            "}" +
+
+            ".raftop-login-kicker{" +
+            "font-size:12px;" +
+            "font-weight:900;" +
+            "letter-spacing:.16em;" +
+            "color:#0f766e;" +
+            "text-transform:uppercase;" +
+            "margin-bottom:10px;" +
+            "}" +
+
+            ".raftop-login-title{" +
+            "font-size:30px;" +
+            "line-height:1.1;" +
+            "font-weight:950;" +
+            "color:#07111f;" +
+            "margin:0 0 10px;" +
+            "}" +
+
+            ".raftop-login-subtitle{" +
+            "font-size:14px;" +
+            "line-height:1.45;" +
+            "color:#475569;" +
+            "margin:0 0 24px;" +
+            "font-weight:700;" +
+            "}" +
+
+            ".raftop-login-label{" +
+            "display:block;" +
+            "font-size:12px;" +
+            "font-weight:900;" +
+            "color:#334155;" +
+            "text-transform:uppercase;" +
+            "letter-spacing:.08em;" +
+            "margin:14px 0 7px;" +
+            "}" +
+
+            ".raftop-login-input{" +
+            "display:block!important;" +
+            "width:100%!important;" +
+            "height:50px!important;" +
+            "min-height:50px!important;" +
+            "border-radius:14px!important;" +
+            "border:1px solid #cbd5e1!important;" +
+            "padding:0 14px!important;" +
+            "font-size:15px!important;" +
+            "font-weight:700!important;" +
+            "box-sizing:border-box!important;" +
+            "outline:none!important;" +
+            "background:#ffffff!important;" +
+            "color:#0f172a!important;" +
+            "opacity:1!important;" +
+            "visibility:visible!important;" +
+            "position:relative!important;" +
+            "z-index:2147483647!important;" +
+            "}" +
+
+            ".raftop-login-input:focus{" +
+            "border-color:#0f766e!important;" +
+            "box-shadow:0 0 0 4px rgba(15,118,110,.13)!important;" +
+            "}" +
+
+            "#raftop-login-password{" +
+            "display:block!important;" +
+            "width:100%!important;" +
+            "height:50px!important;" +
+            "min-height:50px!important;" +
+            "margin:0 0 14px 0!important;" +
+            "opacity:1!important;" +
+            "visibility:visible!important;" +
+            "background:#ffffff!important;" +
+            "color:#0f172a!important;" +
+            "}" +
+
+            ".raftop-login-button{" +
+            "width:100%;" +
+            "height:52px;" +
+            "margin-top:22px;" +
+            "border:0;" +
+            "border-radius:16px;" +
+            "background:#0f766e;" +
+            "color:#fff;" +
+            "font-size:15px;" +
+            "font-weight:950;" +
+            "cursor:pointer;" +
+            "}" +
+
+            ".raftop-login-button:disabled{" +
+            "opacity:.65;" +
+            "cursor:not-allowed;" +
+            "}" +
+
+            ".raftop-login-error{" +
+            "display:none;" +
+            "margin-top:14px;" +
+            "background:#fee2e2;" +
+            "color:#991b1b;" +
+            "border-radius:14px;" +
+            "padding:12px;" +
+            "font-size:13px;" +
+            "font-weight:800;" +
+            "}" +
+
+            ".raftop-login-note{" +
+            "margin-top:16px;" +
+            "font-size:12px;" +
+            "color:#64748b;" +
+            "line-height:1.45;" +
+            "font-weight:700;" +
+            "}" +
+
+            ".raftop-login-badge{" +
+            "display:inline-flex;" +
+            "align-items:center;" +
+            "gap:8px;" +
+            "background:#ecfdf5;" +
+            "color:#047857;" +
+            "border-radius:999px;" +
+            "padding:8px 12px;" +
+            "font-size:12px;" +
+            "font-weight:950;" +
+            "margin-top:16px;" +
+            "}";
 
           document.head.appendChild(style);
         }
 
         function createLoginScreen() {
           ensureLoginStyle();
-          document.documentElement.className =
-            (document.documentElement.className || "") + " raftop-login-mode";
+
+          if (
+            document.documentElement.className.indexOf("raftop-login-mode") === -1
+          ) {
+            document.documentElement.className =
+              (document.documentElement.className || "") + " raftop-login-mode";
+          }
 
           var existing = document.getElementById("raftop-hard-login-screen");
           if (existing) return;
@@ -197,24 +342,31 @@
 
           wrap.innerHTML =
             '<div class="raftop-login-card">' +
-            '<div class="raftop-login-kicker">RAFTOP CPAP CARE Pro</div>' +
-            '<h1 class="raftop-login-title">Production Login</h1>' +
-            '<p class="raftop-login-subtitle">Secure access for RAFTOP CPAP operations, ATLAS follow-up control and tenant administration.</p>' +
-            '<form id="raftop-hard-login-form">' +
-            '<label class="raftop-login-label" for="raftop-login-email">Email</label>' +
-            '<input id="raftop-login-email" class="raftop-login-input" type="email" autocomplete="username" value="dimitrisgelly@gmail.com" required />' +
-            '<label class="raftop-login-label" for="raftop-login-password">Password</label>' +
-            '<input id="raftop-login-password" class="raftop-login-input" type="password" autocomplete="current-password" required />' +
-            '<label class="raftop-login-label" for="raftop-login-tenant">Tenant</label>' +
-            '<input id="raftop-login-tenant" class="raftop-login-input" type="text" value="' +
-            DEFAULT_TENANT_ID +
-            '" required />' +
-            '<button id="raftop-login-submit" class="raftop-login-button" type="submit">Sign in securely</button>' +
-            '<div id="raftop-login-error" class="raftop-login-error"></div>' +
-            '<div class="raftop-login-badge">Protected production access</div>' +
-            '<div class="raftop-login-note">Use the admin password created during Phase 41.8. Passwords are not stored in the frontend source.</div>' +
-            "</form>" +
-            "</div>";
+              '<div class="raftop-login-kicker">RAFTOP CPAP CARE PRO</div>' +
+              '<h1 class="raftop-login-title">Production Login</h1>' +
+              '<p class="raftop-login-subtitle">Secure access for RAFTOP CPAP operations, ATLAS follow-up control and tenant administration.</p>' +
+
+              '<form id="raftop-hard-login-form">' +
+
+                '<label class="raftop-login-label" for="raftop-login-email">Email</label>' +
+                '<input id="raftop-login-email" class="raftop-login-input" type="email" autocomplete="username" value="dimitrisgelly@gmail.com" required />' +
+
+                '<label class="raftop-login-label" for="raftop-login-password">Password</label>' +
+                '<input id="raftop-login-password" class="raftop-login-input" type="password" autocomplete="current-password" placeholder="Enter admin password" required />' +
+
+                '<label class="raftop-login-label" for="raftop-login-tenant">Tenant</label>' +
+                '<input id="raftop-login-tenant" class="raftop-login-input" type="text" value="' + DEFAULT_TENANT_ID + '" required />' +
+
+                '<button id="raftop-login-submit" class="raftop-login-button" type="submit">Sign in securely</button>' +
+
+                '<div id="raftop-login-error" class="raftop-login-error"></div>' +
+
+                '<div class="raftop-login-badge">Protected production access</div>' +
+
+                '<div class="raftop-login-note">Use the admin password created during Phase 41.8. Passwords are not stored in the frontend source.</div>' +
+
+              '</form>' +
+            '</div>';
 
           document.body.appendChild(wrap);
 
@@ -301,6 +453,7 @@
                     showError(
                       "Login returned success but no usable token was found. Backend auth response needs mapping."
                     );
+
                     submitButton.disabled = false;
                     submitButton.textContent = "Sign in securely";
                     return;
