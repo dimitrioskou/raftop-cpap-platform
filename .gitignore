@@ -14,3 +14,17 @@ uploads/
 .env.production
 backups/
 node_modules/
+# RAFTOP safety rules
+!.env.production.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+private/
+RAFTOP_PRIVATE_ENV_BACKUP/
+
+# RAFTOP legacy/submodule env protection
+backend/.env
+backend/.env.*

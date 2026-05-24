@@ -1,0 +1,284 @@
+RAFTOP CPAP CARE Pro - Pre-Demo Evidence Report
+Generated At: 2026-05-23 16:33:32
+Project Root: C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE
+Machine: ALPHAAL-6E0I0I5
+User: Administrator
+
+============================================================
+1. Pre-Demo Gate Execution
+============================================================
+
+RAFTOP CPAP CARE Pro - Pre-Demo Check
+Project:  C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE
+Backend:  http://localhost:5001
+Frontend: http://localhost:3001
+Tenant:   raftopoulos-live
+Patient:  demo-patient-001
+
+============================================================
+0. Project Structure
+============================================================
+[OK] Project root exists
+[OK] Backend root exists
+[OK] Frontend root exists
+[OK] Backend package.json exists
+[OK] Frontend package.json exists
+[OK] Tools folder exists
+
+============================================================
+1. Backend Health
+============================================================
+[OK] Backend health => 200
+
+============================================================
+2. Core Tenant APIs
+============================================================
+[OK] Tenant subscription status ok=true
+[OK] Tenant patients API => 200
+[OK] Tenant ATLAS API => 200
+[OK] Tenant ATLAS Action Center API => 200
+[OK] Tenant Closed Loop API => 200
+
+============================================================
+3. Patient Portal APIs
+============================================================
+[OK] Patient Therapy Summary API ok=true
+[OK] Patient Therapy Summary API phase marker correct
+[OK] Patient Nightly Analysis API ok=true
+[OK] Patient Nightly Analysis API phase marker correct
+[OK] Patient Night Compare API ok=true
+[OK] Patient Night Compare API phase marker correct
+[OK] Patient Access Guard blocks missing patientId => 401
+
+============================================================
+4. Security & Compliance APIs
+============================================================
+[OK] Security Overview API ok=true
+[OK] Security Overview API phase marker correct
+[OK] User Activity Audit API ok=true
+[OK] User Activity Audit API phase marker correct
+[OK] Failed Login Audit API ok=true
+[OK] Failed Login Audit API phase marker correct
+
+============================================================
+5. Failed Login Audit Smoke Test
+============================================================
+[OK] Unknown login is rejected => 401
+
+============================================================
+6. Backend Source Wiring
+============================================================
+[OK] server.js wires patient therapy route
+[OK] server.js wires patient nightly analysis route
+[OK] server.js wires patient night compare route
+[OK] server.js wires user activity route
+[OK] server.js wires failed login route
+[OK] patientAccessGuard exists
+[OK] userActivityAuditMiddleware exists
+[OK] failedLoginAuditService exists
+[OK] auth.js captures failed login events
+
+============================================================
+7. Frontend Patient Portal Wiring
+============================================================
+[OK] PatientRoutes has dashboard route
+[OK] PatientRoutes has therapy route
+[OK] PatientRoutes has nightly analysis route
+[OK] PatientRoutes has night compare route
+[OK] App.js has Patient Portal link
+
+============================================================
+8. Frontend Security Center Wiring
+============================================================
+[OK] TenantSecurityOverviewPage exists
+[OK] TenantSecurityOverviewPage shows User Activity
+[OK] TenantSecurityOverviewPage shows Failed Logins
+[OK] TenantUserActivityAuditPage exists
+[OK] TenantFailedLoginAuditPage exists
+[OK] TenantRoutes has user activity route
+[OK] TenantRoutes has failed logins route
+[OK] App.js has Failed Logins navigation
+
+============================================================
+9. Frontend Build
+============================================================
+
+> enterprise-frontend@1.0.0 build
+> react-scripts build
+
+Creating an optimized production build...
+Compiled successfully.
+
+File sizes after gzip:
+
+  145.6 kB  build\static\js\main.b3e3af20.js
+  277 B     build\static\css\main.80db0332.css
+
+The project was built assuming it is hosted at /.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+You may serve it with a static server:
+
+  npm install -g serve
+  serve -s build
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+
+[OK] Frontend build passed
+
+============================================================
+10. Phase 35 Master Readiness
+============================================================
+
+RAFTOP CPAP CARE Pro - Phase 35 Master Readiness Verification
+Backend: http://localhost:5001
+Tenant:  raftopoulos-live
+Patient: demo-patient-001
+
+============================================================
+1. Backend Health
+============================================================
+[OK] Backend health => 200
+
+============================================================
+2. Database Tables
+============================================================
+[OK] tenant_subscriptions exists
+[OK] user_activity_audit_log exists
+[OK] failed_login_audit_log exists
+[OK] acl_audit_log exists
+
+============================================================
+3. Patient Portal APIs
+============================================================
+[OK] Patient Therapy Summary API ok=true
+[OK] Patient Therapy Summary API phase marker correct
+[OK] Patient Nightly Analysis API ok=true
+[OK] Patient Nightly Analysis API phase marker correct
+[OK] Patient Night Compare API ok=true
+[OK] Patient Night Compare API phase marker correct
+[OK] Patient Access Guard blocks missing patientId => 401
+
+============================================================
+4. Security & Compliance APIs
+============================================================
+[OK] Security Overview API ok=true
+[OK] Security Overview API phase marker correct
+[OK] User Activity Audit API ok=true
+[OK] User Activity Audit API phase marker correct
+[OK] Failed Login Audit API ok=true
+[OK] Failed Login Audit API phase marker correct
+
+============================================================
+5. Generate Fresh Audit Events
+============================================================
+[OK] Tenant patients endpoint => 200
+[OK] Patient blocked request => 401
+[OK] Unknown failed login produces 401
+
+============================================================
+6. Audit Row Verification
+============================================================
+[OK] User activity audit rows exist
+[OK] Blocked patient access audit rows exist
+[OK] Failed login audit rows exist
+
+============================================================
+7. Backend Source Files
+============================================================
+[OK] patientAccessGuard exists
+[OK] userActivityAuditMiddleware exists
+[OK] failedLoginAuditService exists
+[OK] securityOverview has failed login risk
+[OK] auth.js captures failed login
+
+============================================================
+8. Frontend Patient Pages
+============================================================
+[OK] PatientDashboardPage exists
+[OK] PatientTherapyPage exists
+[OK] PatientNightlyAnalysisPage exists
+[OK] PatientNightComparePage exists
+[OK] PatientRoutes has dashboard
+[OK] PatientRoutes has night compare
+
+============================================================
+9. Frontend Security Pages
+============================================================
+[OK] TenantSecurityOverviewPage exists
+[OK] Security Center shows User Activity
+[OK] Security Center shows Failed Logins
+[OK] TenantUserActivityAuditPage exists
+[OK] TenantFailedLoginAuditPage exists
+[OK] TenantRoutes has user activity route
+[OK] TenantRoutes has failed logins route
+[OK] App.js has Patient Portal link
+[OK] App.js has Failed Logins link
+
+============================================================
+10. Frontend Build
+============================================================
+
+> enterprise-frontend@1.0.0 build
+> react-scripts build
+
+Creating an optimized production build...
+Compiled successfully.
+
+File sizes after gzip:
+
+  145.6 kB  build\static\js\main.b3e3af20.js
+  277 B     build\static\css\main.80db0332.css
+
+The project was built assuming it is hosted at /.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+You may serve it with a static server:
+
+  npm install -g serve
+  serve -s build
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+
+[OK] npm run build passed
+
+============================================================
+11. Final Result
+============================================================
+Warnings: 0
+Failures: 0
+
+FINAL STATUS: PHASE35_MASTER_READY
+[OK] Phase 35 Master Readiness passed
+
+============================================================
+11. Final Result
+============================================================
+Warnings: 0
+Failures: 0
+
+FINAL STATUS: RAFTOP_PRE_DEMO_READY
+
+
+============================================================
+2. Final Status Extraction
+============================================================
+FINAL STATUS: RAFTOP_PRE_DEMO_READY
+
+============================================================
+3. Failure / Warning Extraction
+============================================================
+[OK] No failures or warnings found.
+
+============================================================
+4. Evidence Decision
+============================================================
+Evidence Decision: READY
+Commercial Demo Status: APPROVED
+Hard Blockers: 0
