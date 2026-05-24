@@ -1,6 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+<script>
+  (function () {
+    try {
+      var path = window.location.pathname || "/";
+      var publicPaths = [
+        "/login",
+        "/auth/login",
+        "/forgot-password",
+        "/reset-password",
+        "/password-reset",
+        "/patient-login",
+        "/patient/login"
+      ];
+
+      function normalize(value) {
+        return String(value || "").replace(/\/+$/, "") || "/";
+      }
+
+      function isPublicPath(currentPath) {
+        var normalized = normalize(currentPath).toLowerCase();
+
+        for (var i = 0; i < publicPaths.length; i++) {
+          if (normalized === normalize(publicPaths[i]).toLowerCase()) {
+            return true;
+          }
+        }
+
+        return false;
+      }
+
+      function getToken() {
+        return (
+          window.localStorage.getItem("raftop_auth_token") ||
+          window.localStorage.getItem("token") ||
+          window.localStorage.getItem("access_token") ||
+          window.localStorage.getItem("auth_token")
+        );
+      }
+
+      if (!isPublicPath(path)) {
+        var token = getToken();
+
+        if (!token || String(token).trim().length < 10) {
+          window.localStorage.setItem(
+            "raftop_redirect_after_login",
+            window.location.pathname + window.location.search
+          );
+
+          window.location.replace("/login");
+        }
+      }
+    } catch (err) {
+      window.location.replace("/login");
+    }
+  })();
+</script>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
