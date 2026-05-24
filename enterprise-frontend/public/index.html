@@ -1,99 +1,408 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="el">
   <head>
-<script>
-  (function () {
-    try {
-      var path = window.location.pathname || "/";
-      var publicPaths = [
-        "/login",
-        "/auth/login",
-        "/forgot-password",
-        "/reset-password",
-        "/password-reset",
-        "/patient-login",
-        "/patient/login"
-      ];
+    <meta charset="utf-8" />
 
-      function normalize(value) {
-        return String(value || "").replace(/\/+$/, "") || "/";
-      }
+    <title>RAFTOP CPAP CARE Pro</title>
 
-      function isPublicPath(currentPath) {
-        var normalized = normalize(currentPath).toLowerCase();
+    <meta
+      name="description"
+      content="RAFTOP CPAP CARE Pro - Enterprise CPAP monitoring, ATLAS follow-up and operational control platform."
+    />
 
-        for (var i = 0; i < publicPaths.length; i++) {
-          if (normalized === normalize(publicPaths[i]).toLowerCase()) {
-            return true;
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0f766e" />
+
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+
+    <script>
+      (function () {
+        var BACKEND_URL = "https://raftop-cpap-backend.onrender.com";
+        var DEFAULT_TENANT_ID = "raftopoulos-live";
+
+        function normalizePath(value) {
+          return String(value || "/").replace(/\/+$/, "") || "/";
+        }
+
+        function currentPath() {
+          return window.location.pathname || "/";
+        }
+
+        function safeGet(key) {
+          try {
+            return window.localStorage.getItem(key);
+          } catch (err) {
+            return null;
           }
         }
 
-        return false;
-      }
-
-      function getToken() {
-        return (
-          window.localStorage.getItem("raftop_auth_token") ||
-          window.localStorage.getItem("token") ||
-          window.localStorage.getItem("access_token") ||
-          window.localStorage.getItem("auth_token")
-        );
-      }
-
-      if (!isPublicPath(path)) {
-        var token = getToken();
-
-        if (!token || String(token).trim().length < 10) {
-          window.localStorage.setItem(
-            "raftop_redirect_after_login",
-            window.location.pathname + window.location.search
-          );
-
-          window.location.replace("/login");
+        function safeSet(key, value) {
+          try {
+            window.localStorage.setItem(key, value);
+          } catch (err) {}
         }
-      }
-    } catch (err) {
-      window.location.replace("/login");
-    }
-  })();
-</script>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+        function safeRemove(key) {
+          try {
+            window.localStorage.removeItem(key);
+          } catch (err) {}
+        }
+
+        function getToken() {
+          return (
+            safeGet("raftop_auth_token") ||
+            safeGet("token") ||
+            safeGet("access_token") ||
+            safeGet("auth_token")
+          );
+        }
+
+        function hasAuthToken() {
+          var token = getToken();
+          return !!(token && String(token).trim().length > 10);
+        }
+
+        function isLoginPath(path) {
+          return normalizePath(path).toLowerCase() === "/login";
+        }
+
+        function isPublicPath(path) {
+          var p = normalizePath(path).toLowerCase();
+
+          return (
+            p === "/login" ||
+            p === "/auth/login" ||
+            p === "/forgot-password" ||
+            p === "/reset-password" ||
+            p === "/password-reset" ||
+            p === "/patient-login" ||
+            p === "/patient/login"
+          );
+        }
+
+        function isStaticPath(path) {
+          var p = String(path || "").toLowerCase();
+
+          return (
+            p.indexOf("/static/") === 0 ||
+            p.indexOf("/assets/") === 0 ||
+            p.indexOf("/favicon") === 0 ||
+            p.indexOf("/manifest.json") === 0 ||
+            p.indexOf("/robots.txt") === 0 ||
+            p.indexOf("/logo") === 0
+          );
+        }
+
+        function redirectToLogin() {
+          var path = currentPath();
+          var search = window.location.search || "";
+
+          if (!isLoginPath(path)) {
+            safeSet("raftop_redirect_after_login", path + search);
+            window.location.replace("/login");
+          }
+        }
+
+        function clearAuthState() {
+          safeRemove("raftop_auth_token");
+          safeRemove("raftop_auth_user");
+          safeRemove("token");
+          safeRemove("user");
+          safeRemove("access_token");
+          safeRemove("auth_token");
+        }
+
+        function extractToken(payload) {
+          if (!payload) return "";
+
+          return (
+            payload.token ||
+            payload.accessToken ||
+            payload.access_token ||
+            payload.jwt ||
+            payload.authToken ||
+            (payload.data && payload.data.token) ||
+            (payload.data && payload.data.accessToken) ||
+            (payload.data && payload.data.access_token) ||
+            ""
+          );
+        }
+
+        function extractUser(payload, email, tenantId) {
+          if (payload && payload.user) return payload.user;
+          if (payload && payload.data && payload.data.user) return payload.data.user;
+
+          return {
+            email: email,
+            tenant_id: tenantId,
+            tenantId: tenantId,
+            role: "admin",
+            status: "active"
+          };
+        }
+
+        function enableLoginModeEarly() {
+          if (isLoginPath(currentPath())) {
+            document.documentElement.className =
+              (document.documentElement.className || "") + " raftop-login-mode";
+          }
+        }
+
+        function disableLoginMode() {
+          document.documentElement.className = String(
+            document.documentElement.className || ""
+          ).replace(/\braftop-login-mode\b/g, "");
+        }
+
+        enableLoginModeEarly();
+
+        function ensureLoginStyle() {
+          if (document.getElementById("raftop-hard-login-style")) return;
+
+          var style = document.createElement("style");
+          style.id = "raftop-hard-login-style";
+          style.innerHTML =
+            "html.raftop-login-mode,html.raftop-login-mode body{margin:0;min-height:100%;font-family:Inter,Arial,sans-serif;background:#07111f!important;}" +
+            "html.raftop-login-mode #root{display:none!important;}" +
+            ".raftop-login-wrap{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#06101f 0%,#0f766e 100%);padding:24px;box-sizing:border-box;}" +
+            ".raftop-login-card{width:100%;max-width:460px;background:#ffffff;border-radius:28px;box-shadow:0 30px 90px rgba(0,0,0,.35);padding:34px;box-sizing:border-box;}" +
+            ".raftop-login-kicker{font-size:12px;font-weight:900;letter-spacing:.16em;color:#0f766e;text-transform:uppercase;margin-bottom:10px;}" +
+            ".raftop-login-title{font-size:30px;line-height:1.1;font-weight:950;color:#07111f;margin:0 0 10px;}" +
+            ".raftop-login-subtitle{font-size:14px;line-height:1.45;color:#475569;margin:0 0 24px;font-weight:700;}" +
+            ".raftop-login-label{display:block;font-size:12px;font-weight:900;color:#334155;text-transform:uppercase;letter-spacing:.08em;margin:14px 0 7px;}" +
+            ".raftop-login-input{width:100%;height:48px;border-radius:14px;border:1px solid #cbd5e1;padding:0 14px;font-size:15px;font-weight:700;box-sizing:border-box;outline:none;background:#fff;color:#0f172a;}" +
+            ".raftop-login-input:focus{border-color:#0f766e;box-shadow:0 0 0 4px rgba(15,118,110,.13);}" +
+            ".raftop-login-button{width:100%;height:50px;margin-top:22px;border:0;border-radius:16px;background:#0f766e;color:#fff;font-size:15px;font-weight:950;cursor:pointer;}" +
+            ".raftop-login-button:disabled{opacity:.65;cursor:not-allowed;}" +
+            ".raftop-login-error{display:none;margin-top:14px;background:#fee2e2;color:#991b1b;border-radius:14px;padding:12px;font-size:13px;font-weight:800;}" +
+            ".raftop-login-note{margin-top:16px;font-size:12px;color:#64748b;line-height:1.45;font-weight:700;}" +
+            ".raftop-login-badge{display:inline-flex;align-items:center;gap:8px;background:#ecfdf5;color:#047857;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:950;margin-top:16px;}";
+
+          document.head.appendChild(style);
+        }
+
+        function createLoginScreen() {
+          ensureLoginStyle();
+          document.documentElement.className =
+            (document.documentElement.className || "") + " raftop-login-mode";
+
+          var existing = document.getElementById("raftop-hard-login-screen");
+          if (existing) return;
+
+          var wrap = document.createElement("div");
+          wrap.id = "raftop-hard-login-screen";
+          wrap.className = "raftop-login-wrap";
+
+          wrap.innerHTML =
+            '<div class="raftop-login-card">' +
+            '<div class="raftop-login-kicker">RAFTOP CPAP CARE Pro</div>' +
+            '<h1 class="raftop-login-title">Production Login</h1>' +
+            '<p class="raftop-login-subtitle">Secure access for RAFTOP CPAP operations, ATLAS follow-up control and tenant administration.</p>' +
+            '<form id="raftop-hard-login-form">' +
+            '<label class="raftop-login-label" for="raftop-login-email">Email</label>' +
+            '<input id="raftop-login-email" class="raftop-login-input" type="email" autocomplete="username" value="dimitrisgelly@gmail.com" required />' +
+            '<label class="raftop-login-label" for="raftop-login-password">Password</label>' +
+            '<input id="raftop-login-password" class="raftop-login-input" type="password" autocomplete="current-password" required />' +
+            '<label class="raftop-login-label" for="raftop-login-tenant">Tenant</label>' +
+            '<input id="raftop-login-tenant" class="raftop-login-input" type="text" value="' +
+            DEFAULT_TENANT_ID +
+            '" required />' +
+            '<button id="raftop-login-submit" class="raftop-login-button" type="submit">Sign in securely</button>' +
+            '<div id="raftop-login-error" class="raftop-login-error"></div>' +
+            '<div class="raftop-login-badge">Protected production access</div>' +
+            '<div class="raftop-login-note">Use the admin password created during Phase 41.8. Passwords are not stored in the frontend source.</div>' +
+            "</form>" +
+            "</div>";
+
+          document.body.appendChild(wrap);
+
+          var form = document.getElementById("raftop-hard-login-form");
+          var emailInput = document.getElementById("raftop-login-email");
+          var passwordInput = document.getElementById("raftop-login-password");
+          var tenantInput = document.getElementById("raftop-login-tenant");
+          var submitButton = document.getElementById("raftop-login-submit");
+          var errorBox = document.getElementById("raftop-login-error");
+
+          function showError(message) {
+            errorBox.style.display = "block";
+            errorBox.textContent = message || "Login failed.";
+          }
+
+          function hideError() {
+            errorBox.style.display = "none";
+            errorBox.textContent = "";
+          }
+
+          async function tryLogin(body, headers) {
+            var response = await fetch(BACKEND_URL + "/api/auth/login", {
+              method: "POST",
+              headers: headers,
+              body: JSON.stringify(body)
+            });
+
+            var text = await response.text();
+            var payload = {};
+
+            try {
+              payload = text ? JSON.parse(text) : {};
+            } catch (err) {
+              payload = {};
+            }
+
+            return {
+              ok: response.ok,
+              status: response.status,
+              payload: payload,
+              raw: text
+            };
+          }
+
+          form.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            hideError();
+
+            var email = String(emailInput.value || "").trim();
+            var password = String(passwordInput.value || "");
+            var tenantId = String(tenantInput.value || "").trim() || DEFAULT_TENANT_ID;
+
+            if (!email || !password || !tenantId) {
+              showError("Email, password and tenant are required.");
+              return;
+            }
+
+            submitButton.disabled = true;
+            submitButton.textContent = "Signing in...";
+
+            try {
+              clearAuthState();
+
+              var headers = {
+                "Content-Type": "application/json",
+                "x-tenant-id": tenantId
+              };
+
+              var attempts = [
+                { email: email, password: password, tenantId: tenantId },
+                { email: email, password: password, tenant_id: tenantId },
+                { email: email, password: password }
+              ];
+
+              var lastResult = null;
+
+              for (var i = 0; i < attempts.length; i++) {
+                lastResult = await tryLogin(attempts[i], headers);
+
+                if (lastResult.ok) {
+                  var token = extractToken(lastResult.payload);
+
+                  if (!token || String(token).trim().length < 10) {
+                    showError(
+                      "Login returned success but no usable token was found. Backend auth response needs mapping."
+                    );
+                    submitButton.disabled = false;
+                    submitButton.textContent = "Sign in securely";
+                    return;
+                  }
+
+                  var user = extractUser(lastResult.payload, email, tenantId);
+
+                  safeSet("raftop_auth_token", token);
+                  safeSet("token", token);
+                  safeSet("raftop_auth_user", JSON.stringify(user));
+                  safeSet("user", JSON.stringify(user));
+                  safeSet("tenant_id", tenantId);
+                  safeSet("tenantId", tenantId);
+
+                  var redirect = safeGet("raftop_redirect_after_login") || "/dashboard";
+
+                  if (
+                    normalizePath(redirect).toLowerCase() === "/login" ||
+                    normalizePath(redirect) === "/"
+                  ) {
+                    redirect = "/dashboard";
+                  }
+
+                  disableLoginMode();
+                  window.location.replace(redirect);
+                  return;
+                }
+              }
+
+              showError(
+                "Login failed. Backend returned status " +
+                  (lastResult ? lastResult.status : "unknown") +
+                  "."
+              );
+            } catch (err) {
+              showError(
+                "Login request failed: " +
+                  (err && err.message ? err.message : "network error")
+              );
+            }
+
+            submitButton.disabled = false;
+            submitButton.textContent = "Sign in securely";
+          });
+
+          setTimeout(function () {
+            try {
+              passwordInput.focus();
+            } catch (err) {}
+          }, 100);
+        }
+
+        function hardGate() {
+          var path = currentPath();
+
+          if (isStaticPath(path)) {
+            return;
+          }
+
+          if (isLoginPath(path)) {
+            if (hasAuthToken()) {
+              disableLoginMode();
+              window.location.replace("/dashboard");
+              return;
+            }
+
+            if (document.body) {
+              createLoginScreen();
+            } else {
+              document.addEventListener("DOMContentLoaded", createLoginScreen);
+            }
+
+            return;
+          }
+
+          if (!isPublicPath(path) && !hasAuthToken()) {
+            redirectToLogin();
+            return;
+          }
+
+          disableLoginMode();
+        }
+
+        hardGate();
+
+        document.addEventListener("DOMContentLoaded", function () {
+          hardGate();
+
+          if (isLoginPath(currentPath()) && !hasAuthToken()) {
+            createLoginScreen();
+          }
+        });
+
+        window.addEventListener("popstate", hardGate);
+        window.addEventListener("focus", hardGate);
+        window.addEventListener("storage", hardGate);
+      })();
+    </script>
   </head>
+
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>You need to enable JavaScript to run RAFTOP CPAP CARE Pro.</noscript>
     <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
   </body>
 </html>
