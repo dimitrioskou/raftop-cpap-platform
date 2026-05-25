@@ -10,8 +10,11 @@ import {
 } from 'react-router-dom';
 
 import CommercialDemoBanner from './components/CommercialDemoBanner';
+import TenantBrandBanner from './components/TenantBrandBanner';
+import { TenantRuntimeProvider } from './context/TenantRuntimeContext';
 import ExecutiveKpiRibbon from './components/ExecutiveKpiRibbon';
-import OperationalCommandCenter from './components/OperationalCommandCenter';
+import RuntimeFeatureGate from './components/RuntimeFeatureGate';
+
 import RaftopoulosSalesSnapshotPage from './pages/RaftopoulosSalesSnapshotPage';
 import RaftopoulosPilotProposalPage from './pages/RaftopoulosPilotProposalPage';
 import RaftopoulosDecisionRoomPage from './pages/RaftopoulosDecisionRoomPage';
@@ -24,12 +27,26 @@ import RaftopoulosFinalClientDemoScriptPage from './pages/RaftopoulosFinalClient
 import RaftopoulosPilotApprovalDecisionPage from './pages/RaftopoulosPilotApprovalDecisionPage';
 import RaftopoulosExecutivePilotClosePage from './pages/RaftopoulosExecutivePilotClosePage';
 import RaftopoulosExecutiveLeaveBehindPage from './pages/RaftopoulosExecutiveLeaveBehindPage';
-
+import RaftopoulosExecutiveDemoScriptPage from './pages/RaftopoulosExecutiveDemoScriptPage';
+import RaftopoulosPilotWalkthroughScenarioPage from './pages/RaftopoulosPilotWalkthroughScenarioPage';
+import RaftopoulosExecutiveDemoHomePage from './pages/RaftopoulosExecutiveDemoHomePage';
+import PilotDemoDashboardPage from "./pages/PilotDemoDashboardPage";
 import PreSaleChecklistPage from './pages/PreSaleChecklistPage';
 import ClientDemoStartPage from './pages/ClientDemoStartPage';
+import DemoRoutes from './routes/DemoRoutes';
+import SalesRoutes from './routes/SalesRoutes';
+import TenantRoutes from './routes/TenantRoutes';
+import PatientRoutes from './routes/PatientRoutes';
+import SystemRoutes from './routes/SystemRoutes';
+import SuperAdminRoutes from './routes/SuperAdminRoutes';
+import RuntimeRoleSwitcher from './security/RuntimeRoleSwitcher';
+import RuntimeAclStatusPanel from './security/RuntimeAclStatusPanel';
+import RuntimeAclNavGate from './security/RuntimeAclNavGate';
+import { PERMISSIONS } from './security/runtimeAcl';
 import TenantStatisticsPage from './pages/TenantStatisticsPage';
 import TenantExecutiveStatisticsReportPage from './pages/TenantExecutiveStatisticsReportPage';
 import TenantBusinessImpactPage from './pages/TenantBusinessImpactPage';
+import SuperAdminTenantProvisioningPage from './pages/SuperAdminTenantProvisioningPage';
 
 const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
@@ -159,6 +176,8 @@ function safeArray(value, keys = []) {
   }
 
   if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.data?.items)) return value.data.items;
+  if (Array.isArray(value?.data?.rows)) return value.data.rows;
   if (Array.isArray(value?.items)) return value.items;
   if (Array.isArray(value?.rows)) return value.rows;
   if (Array.isArray(value?.results)) return value.results;
@@ -169,6 +188,7 @@ function safeArray(value, keys = []) {
   if (Array.isArray(value?.patients)) return value.patients;
   if (Array.isArray(value?.devices)) return value.devices;
   if (Array.isArray(value?.tasks)) return value.tasks;
+  if (Array.isArray(value?.queue)) return value.queue;
 
   return [];
 }
@@ -383,6 +403,18 @@ function NavigationLinks() {
       <div style={navGroup}>
         <div style={navTitle}>Presentation</div>
 
+        <Link to="/sales/raftopoulos/executive-demo-home" style={executiveDemoHomeLink}>
+          Executive Demo Home
+        </Link>
+
+        <Link to="/sales/raftopoulos/executive-demo-script" style={executiveDemoScriptLink}>
+          Executive Demo Script
+        </Link>
+
+        <Link to="/sales/raftopoulos/pilot-walkthrough" style={pilotWalkthroughLink}>
+          Pilot Walkthrough
+        </Link>
+
         <Link to="/demo/raftopoulos/start" style={launcherLink}>
           Demo Launcher
         </Link>
@@ -458,6 +490,11 @@ function NavigationLinks() {
         <Link to="/tenant/dashboard" style={navPrimary}>
           Dashboard
         </Link>
+
+<Link to="/patient/dashboard" style={launcherLink}>
+  Patient Portal
+</Link>
+
       </div>
 
       <div style={navGroup}>
@@ -471,41 +508,59 @@ function NavigationLinks() {
           Devices
         </Link>
 
-        <Link to="/tenant/patient-signals" style={navLink}>
-          Patient Signals
-        </Link>
+        <RuntimeAclNavGate permission={PERMISSIONS.VIEW_PATIENT_SIGNALS}>
+  <Link to="/tenant/patient-signals" style={navLink}>
+    Patient Signals
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/atlas" style={navLink}>
-          ATLAS
-        </Link>
+        <RuntimeAclNavGate permission={PERMISSIONS.VIEW_ATLAS}>
+  <Link to="/tenant/atlas" style={navLink}>
+    ATLAS
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/atlas/action-center" style={navLink}>
-          Action Center
-        </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_ACTION_CENTER}>
+  <Link to="/tenant/atlas/action-center" style={navLink}>
+    Action Center
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/closed-loop" style={navLink}>
-          Closed Loop
-        </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_CLOSED_LOOP}>
+  <Link to="/tenant/closed-loop" style={navLink}>
+    Closed Loop
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/tasks" style={navLink}>
-          Tasks
-        </Link>
+        <RuntimeAclNavGate permission={PERMISSIONS.VIEW_TASKS}>
+  <Link to="/tenant/tasks" style={navLink}>
+    Tasks
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/followup" style={navLink}>
-          Follow-up
-        </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_FOLLOWUP}>
+  <Link to="/tenant/followup" style={navLink}>
+    Follow-up
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/notes" style={navLink}>
-          Notes
-        </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_NOTES}>
+  <Link to="/tenant/notes" style={navLink}>
+    Notes
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/referrals" style={navLink}>
-          Referrals
-        </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_REFERRALS}>
+  <Link to="/tenant/referrals" style={navLink}>
+    Referrals
+  </Link>
+</RuntimeAclNavGate>
 
-        <Link to="/tenant/notifications" style={navLink}>
-          Notifications
-        </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_NOTIFICATIONS}>
+  <Link to="/tenant/notifications" style={navLink}>
+    Notifications
+  </Link>
+</RuntimeAclNavGate>
       </div>
 
       {!demo && (
@@ -513,6 +568,7 @@ function NavigationLinks() {
           <div style={navTitle}>Business</div>
           <Link to="/tenant/payments" style={navLink}>Payments</Link>
           <Link to="/tenant/billing" style={navLink}>Billing</Link>
+          <Link to="/tenant/subscription" style={navLink}>Subscription</Link>
           <Link to="/tenant/users" style={navLink}>Users</Link>
           <Link to="/tenant/modules" style={navLink}>Modules</Link>
           <Link to="/tenant/integrations" style={navLink}>Integrations</Link>
@@ -566,8 +622,37 @@ function NavigationLinks() {
           <Link to="/system/backend-config" style={navLink}>Backend Config</Link>
           <Link to="/system/database-backup" style={navLink}>DB Backup</Link>
           <Link to="/system/alerts" style={navLink}>Alerts</Link>
-          <Link to="/super-admin/subscriptions" style={purpleLink}>Subscriptions</Link>
-          <Link to="/super-admin/tenant-profiles" style={purpleLink}>Tenant Profiles</Link>
+          <RuntimeAclNavGate permission={PERMISSIONS.VIEW_SYSTEM}>
+  <Link to="/tenant/security" style={purpleLink}>
+    Security Center
+  </Link>
+</RuntimeAclNavGate>
+          <RuntimeAclNavGate permission={PERMISSIONS.VIEW_SYSTEM}>
+  <Link to="/tenant/security/acl-audit" style={purpleLink}>
+    ACL Audit
+  </Link>
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_SYSTEM}>
+  <Link to="/tenant/security/user-activity" style={purpleLink}>
+    User Activity
+  </Link>
+  <RuntimeAclNavGate permission={PERMISSIONS.VIEW_SYSTEM}>
+  <Link to="/tenant/security/failed-logins" style={purpleLink}>
+    Failed Logins
+  </Link>
+</RuntimeAclNavGate>
+</RuntimeAclNavGate>
+</RuntimeAclNavGate>
+         <RuntimeAclNavGate permission={PERMISSIONS.VIEW_SUPER_ADMIN}>
+  <Link to="/super-admin/subscriptions" style={purpleLink}>Subscriptions</Link>
+</RuntimeAclNavGate>
+
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_SUPER_ADMIN}>
+  <Link to="/super-admin/tenant-profiles" style={purpleLink}>Tenant Profiles</Link>
+</RuntimeAclNavGate>
+
+<RuntimeAclNavGate permission={PERMISSIONS.VIEW_SUPER_ADMIN}>
+  <Link to="/super-admin/tenant-provisioning" style={purpleLink}>Tenant Provisioning</Link>
+</RuntimeAclNavGate>
         </div>
       )}
     </nav>
@@ -755,7 +840,7 @@ function DataPage({
 }
 
 function GenericSummary({ payload, rows }) {
-  const summary = payload?.summary || {};
+  const summary = payload?.summary || payload?.data?.summary || {};
 
   return (
     <section style={metricsGrid}>
@@ -935,35 +1020,6 @@ function PatientsPage() {
       subtitle="Patient portfolio for the Raftopoulos CPAP Care commercial demo."
       endpoint="/api/tenant/patients"
       rowKeys={['patients']}
-      renderRows={(payload, rows) => (
-        <section style={panel}>
-          <h2 style={sectionTitle}>Patient Portfolio</h2>
-
-          {rows.length === 0 ? (
-            <div style={emptyBox}>No patients to display.</div>
-          ) : (
-            <div style={cardsGrid}>
-              {rows.map((patient, index) => (
-                <div key={patient.id || index} style={recordCard}>
-                  <h3 style={{ margin: 0 }}>
-                    {patient.name ||
-                      patient.patientName ||
-                      patient.patient_name ||
-                      `Patient ${index + 1}`}
-                  </h3>
-
-                  <div style={recordMeta}>
-                    <Badge value={patient.status || 'ACTIVE'} />
-                    <Badge value={patient.complianceStatus || patient.compliance_status || 'CPAP MONITORING'} />
-                  </div>
-
-                  <CleanRecordView record={patient} />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
     />
   );
 }
@@ -975,35 +1031,6 @@ function DevicesPage() {
       subtitle="CPAP device overview with patient linkage and operational device status."
       endpoint="/api/tenant/devices"
       rowKeys={['devices']}
-      renderRows={(payload, rows) => (
-        <section style={panel}>
-          <h2 style={sectionTitle}>CPAP Device Portfolio</h2>
-
-          {rows.length === 0 ? (
-            <div style={emptyBox}>No devices to display.</div>
-          ) : (
-            <div style={cardsGrid}>
-              {rows.map((device, index) => (
-                <div key={device.id || index} style={recordCard}>
-                  <h3 style={{ margin: 0 }}>
-                    {device.model ||
-                      device.deviceModel ||
-                      device.device_model ||
-                      `CPAP Device ${index + 1}`}
-                  </h3>
-
-                  <div style={recordMeta}>
-                    <Badge value={device.brand || 'CPAP'} />
-                    <Badge value={device.status || 'ACTIVE'} />
-                  </div>
-
-                  <CleanRecordView record={device} />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
     />
   );
 }
@@ -1015,44 +1042,6 @@ function PatientSignalsPage() {
       subtitle="ATLAS-driven signals that show which patients need attention first."
       endpoint="/api/tenant/patient-signals"
       rowKeys={['signals']}
-      renderRows={(payload, rows) => (
-        <section style={panel}>
-          <h2 style={sectionTitle}>ATLAS Patient Signals</h2>
-
-          {rows.length === 0 ? (
-            <div style={emptyBox}>No patient signals to display.</div>
-          ) : (
-            <div style={cardsGrid}>
-              {rows.map((signal, index) => (
-                <div key={signal.id || index} style={recordCard}>
-                  <h3 style={{ margin: 0 }}>
-                    {signal.title ||
-                      signal.signalType ||
-                      signal.signal_type ||
-                      `Signal ${index + 1}`}
-                  </h3>
-
-                  <div style={recordMeta}>
-                    <Badge value={signal.severity || 'MEDIUM'} />
-                    <Badge value={signal.status || 'OPEN'} />
-                    <Badge value={signal.source || 'ATLAS'} />
-                  </div>
-
-                  <CleanRecordView record={signal} />
-
-                  <div style={nextActionBox}>
-                    <strong>Suggested action:</strong>{' '}
-                    {signal.metadata?.nextBestAction ||
-                      signal.nextBestAction ||
-                      signal.next_best_action ||
-                      'Review and assign follow-up.'}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
     />
   );
 }
@@ -1073,8 +1062,8 @@ function AtlasActionCenterPage() {
     <DataPage
       title="ATLAS Action Center"
       subtitle="Unified escalation surface for patient signals, tasks and next best actions."
-      endpoint="/api/tenant/atlas"
-      rowKeys={['queue', 'cases', 'tasks', 'signals', 'items']}
+      endpoint="/api/tenant/atlas/action-center"
+      rowKeys={['items', 'actions', 'tasks', 'signals', 'queue', 'rows']}
     />
   );
 }
@@ -1122,7 +1111,8 @@ function GenericEndpointPage({ title, subtitle, endpoint, admin = false }) {
         'referrals',
         'notifications',
         'followups',
-        'followUps'
+        'followUps',
+        'rows'
       ]}
     />
   );
@@ -1136,8 +1126,8 @@ function NotFoundPage() {
         <p style={{ color: '#64748b' }}>
           This frontend route is not registered in the clean commercial demo App.js.
         </p>
-        <Link to="/demo/raftopoulos/start" style={launcherLink}>
-          Go to Demo Launcher
+        <Link to="/sales/raftopoulos/executive-demo-home" style={launcherLink}>
+          Go to Executive Demo Home
         </Link>
       </section>
     </main>
@@ -1147,71 +1137,43 @@ function NotFoundPage() {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/demo/raftopoulos/start" replace />} />
+      <Route path="/" element={<Navigate to="/sales/raftopoulos/executive-demo-home" replace />} />
 
-      <Route path="/demo/raftopoulos/start" element={<ClientDemoStartPage mode="snapshot" />} />
-      <Route path="/demo/raftopoulos/pilot" element={<ClientDemoStartPage mode="pilot" />} />
-      <Route path="/demo/raftopoulos/decision-room" element={<ClientDemoStartPage mode="decision-room" />} />
+      {DemoRoutes()}
 
-      <Route path="/sales/raftopoulos" element={<RaftopoulosSalesSnapshotPage />} />
-      <Route path="/sales/raftopoulos/pilot" element={<RaftopoulosPilotProposalPage />} />
-      <Route path="/sales/raftopoulos/decision-room" element={<RaftopoulosDecisionRoomPage />} />
-      <Route path="/sales/raftopoulos/objections" element={<RaftopoulosObjectionHandlingPage />} />
-      <Route path="/sales/raftopoulos/pilot-success" element={<RaftopoulosPilotSuccessCriteriaPage />} />
-      <Route path="/sales/raftopoulos/pilot-playbook" element={<RaftopoulosPilotOperatingPlaybookPage />} />
-      <Route path="/sales/raftopoulos/rollout-roadmap" element={<RaftopoulosRolloutRoadmapPage />} />
-      <Route path="/sales/raftopoulos/presentation-flow" element={<RaftopoulosClientPresentationFlowPage />} />
-      <Route path="/sales/raftopoulos/final-demo-script" element={<RaftopoulosFinalClientDemoScriptPage />} />
-      <Route path="/sales/raftopoulos/pilot-approval-decision" element={<RaftopoulosPilotApprovalDecisionPage />} />
-      <Route path="/sales/raftopoulos/executive-pilot-close" element={<RaftopoulosExecutivePilotClosePage />} />
-      <Route path="/sales/raftopoulos/executive-leave-behind" element={<RaftopoulosExecutiveLeaveBehindPage />} />
+      {SalesRoutes()}
 
-      <Route
-        path="/internal/pre-sale-checklist"
-        element={
-          <TechnicalRoute>
-            <PreSaleChecklistPage />
-          </TechnicalRoute>
-        }
-      />
+      {TenantRoutes({
+        DashboardPage,
+        TenantStatisticsPage,
+        TenantExecutiveStatisticsReportPage,
+        TenantBusinessImpactPage,
+        PatientsPage,
+        DevicesPage,
+        PatientSignalsPage,
+        AtlasPage,
+        AtlasActionCenterPage,
+        ClosedLoopPage,
+        GenericEndpointPage
+      })}
 
-      <Route path="/tenant/dashboard" element={<DashboardPage />} />
-      <Route path="/tenant/statistics" element={<TenantStatisticsPage />} />
-      <Route path="/tenant/statistics/report" element={<TenantExecutiveStatisticsReportPage />} />
-      <Route path="/tenant/business-impact" element={<TenantBusinessImpactPage />} />
-      <Route path="/tenant/patients" element={<PatientsPage />} />
-      <Route path="/tenant/devices" element={<DevicesPage />} />
-      <Route path="/tenant/patient-signals" element={<PatientSignalsPage />} />
-      <Route path="/tenant/atlas" element={<AtlasPage />} />
-      <Route path="/tenant/atlas/action-center" element={<AtlasActionCenterPage />} />
-      <Route path="/tenant/closed-loop" element={<ClosedLoopPage />} />
-      <Route path="/tenant/closed-loop/control-hub" element={<ClosedLoopPage />} />
-
-      <Route path="/tenant/tasks" element={<GenericEndpointPage title="Tasks" subtitle="Unified task board." endpoint="/api/tenant/tasks-unified" />} />
-      <Route path="/tenant/followup" element={<GenericEndpointPage title="Follow-up" subtitle="Follow-up center." endpoint="/api/tenant/followup" />} />
-      <Route path="/tenant/notes" element={<GenericEndpointPage title="Notes" subtitle="Tenant notes." endpoint="/api/tenant/notes" />} />
-      <Route path="/tenant/referrals" element={<GenericEndpointPage title="Referrals" subtitle="Referral management." endpoint="/api/tenant/referrals" />} />
-      <Route path="/tenant/notifications" element={<GenericEndpointPage title="Notifications" subtitle="Notification queue." endpoint="/api/tenant/notifications" />} />
+{PatientRoutes()}
 
       <Route path="/tenant/payments" element={<GenericEndpointPage title="Payments" subtitle="Payments." endpoint="/api/tenant/payments" />} />
       <Route path="/tenant/billing" element={<GenericEndpointPage title="Billing" subtitle="Billing." endpoint="/api/tenant/billing" />} />
       <Route path="/tenant/users" element={<GenericEndpointPage title="Users" subtitle="Users." endpoint="/api/tenant/users" />} />
       <Route path="/tenant/modules" element={<GenericEndpointPage title="Modules" subtitle="Modules." endpoint="/api/tenant/modules" />} />
       <Route path="/tenant/integrations" element={<GenericEndpointPage title="Integrations" subtitle="Integrations." endpoint="/api/tenant/integrations" />} />
-      <Route path="/tenant/branding" element={<GenericEndpointPage title="Branding" subtitle="Branding." endpoint="/api/tenant/branding" />} />
+      <Route path="/tenant/branding" element={<GenericEndpointPage title="Branding" subtitle="Tenant branding configuration." endpoint="/api/tenant/branding" />} />
+<Route path="/sales/raftopoulos/pilot-demo" element={<PilotDemoDashboardPage />} />
+      {SystemRoutes({
+  ReleaseCandidatePage,
+  GenericEndpointPage
+})}
 
-      <Route path="/system/release-candidate" element={<TechnicalRoute><ReleaseCandidatePage /></TechnicalRoute>} />
-      <Route path="/system/route-stability" element={<TechnicalRoute><GenericEndpointPage title="Route Stability Audit" subtitle="Tenant-aware route stability audit." endpoint="/api/system/route-stability-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/saas-stability" element={<TechnicalRoute><GenericEndpointPage title="SaaS Stability Audit" subtitle="SaaS stability audit." endpoint="/api/system/saas-stability-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/production-readiness" element={<TechnicalRoute><GenericEndpointPage title="Production Readiness" subtitle="Production readiness audit." endpoint="/api/system/production-readiness-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/tenant-cleanup" element={<TechnicalRoute><GenericEndpointPage title="Tenant Cleanup" subtitle="Tenant cleanup audit." endpoint="/api/system/tenant-cleanup-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/security-exposure" element={<TechnicalRoute><GenericEndpointPage title="Security Exposure" subtitle="Security exposure audit." endpoint="/api/system/security-exposure-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/backend-config" element={<TechnicalRoute><GenericEndpointPage title="Backend Config" subtitle="Backend config audit." endpoint="/api/system/backend-production-config-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/database-backup" element={<TechnicalRoute><GenericEndpointPage title="Database Backup Safety" subtitle="Database backup safety audit." endpoint="/api/system/database-backup-safety-audit" admin /></TechnicalRoute>} />
-      <Route path="/system/alerts" element={<TechnicalRoute><GenericEndpointPage title="System Alerts" subtitle="System alerts." endpoint="/api/system/alerts" admin /></TechnicalRoute>} />
-
-      <Route path="/super-admin/subscriptions" element={<TechnicalRoute><GenericEndpointPage title="Subscriptions" subtitle="Super admin subscriptions." endpoint="/api/super-admin/subscriptions" admin /></TechnicalRoute>} />
-      <Route path="/super-admin/tenant-profiles" element={<TechnicalRoute><GenericEndpointPage title="Tenant Profiles" subtitle="Super admin tenant profiles." endpoint="/api/super-admin/tenant-profiles" admin /></TechnicalRoute>} />
+{SuperAdminRoutes({
+  GenericEndpointPage
+})}
 
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
@@ -1220,17 +1182,25 @@ function AppRoutes() {
 
 function AppShell() {
   return (
-    <div style={appShell}>
-      <TenantContextBar />
+    <TenantRuntimeProvider>
+      <div style={appShell}>
+        <TenantContextBar />
 
-      <main style={main}>
-        <CommercialDemoBanner />
-        <ExecutiveKpiRibbon />
-        <OperationalCommandCenter />
-        <NavigationLinks />
-        <AppRoutes />
-      </main>
-    </div>
+        <main style={main}>
+          <CommercialDemoBanner />
+          <TenantBrandBanner />
+          <ExecutiveKpiRibbon />
+          {isTechnicalDemoUnlocked() && (
+  <>
+    <RuntimeRoleSwitcher />
+    <RuntimeAclStatusPanel />
+  </>
+)}
+          <NavigationLinks />
+          <AppRoutes />
+        </main>
+      </div>
+    </TenantRuntimeProvider>
   );
 }
 
@@ -1413,6 +1383,21 @@ const linkBase = {
   padding: '10px 12px',
   fontSize: 13,
   fontWeight: 900
+};
+
+const executiveDemoHomeLink = {
+  ...linkBase,
+  background: '#0f172a'
+};
+
+const executiveDemoScriptLink = {
+  ...linkBase,
+  background: '#1e3a8a'
+};
+
+const pilotWalkthroughLink = {
+  ...linkBase,
+  background: '#0e7490'
 };
 
 const launcherLink = {
@@ -1715,17 +1700,6 @@ const cleanValue = {
   fontWeight: 800,
   lineHeight: 1.35,
   wordBreak: 'break-word'
-};
-
-const nextActionBox = {
-  marginTop: 14,
-  background: '#ecfdf5',
-  border: '1px solid #a7f3d0',
-  color: '#065f46',
-  borderRadius: 14,
-  padding: 12,
-  fontWeight: 800,
-  lineHeight: 1.4
 };
 
 const jsonPre = {
