@@ -28,3 +28,7 @@ RAFTOP_PRIVATE_ENV_BACKUP/
 # RAFTOP legacy/submodule env protection
 backend/.env
 backend/.env.*
+
+reports/
+tools/_phase*.js
+enterprise-frontend/build/
