@@ -52,7 +52,7 @@ const patientNightlyAnalysisRoutes = require('./routes/patient/nightlyAnalysis')
 const patientNightCompareRoutes = require('./routes/patient/nightCompare');
 const tenantUnifiedTasksRoutes = require('./routes/tenant/unifiedTasks');
 const tenantTasksRoutes = require('./routes/tenant/tasks');
-
+const tenantPilotDemoRoutes = require('./routes/tenant/pilotDemo');
 const tenantAtlasRoutes = require('./routes/tenant/atlas');
 const atlasActionCenterForceRoute = require('./routes/tenant/atlasActionCenterForceRoute');
 
@@ -186,7 +186,7 @@ app.use('/api/tenant/patient-signals', tenantPatientSignalsRoutes);
 
 app.use('/api/patient', userActivityAuditMiddleware);
 app.use('/api/patient', patientAccessGuard);
-
+app.use('/api/tenant/pilot-demo', tenantPilotDemoRoutes);
 app.use('/api/tenant/security/failed-logins', tenantFailedLoginAuditRoutes);
 app.use('/api/patient/therapy', patientTherapyRoutes);
 app.use('/api/patient/nightly-analysis', patientNightlyAnalysisRoutes);
