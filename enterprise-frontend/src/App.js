@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useState } from 'react';
 import {
   BrowserRouter,
   Link,
@@ -411,7 +411,7 @@ function NavigationLinks() {
           Executive Demo Script
         </Link>
 
-        <Link to="/sales/raftopoulos/pilot-walkthrough" style={pilotWalkthroughLink}>
+        <Link to="/sales/raftopoulos/pilot-walkthrough-scenario" style={pilotWalkthroughLink}>
           Pilot Walkthrough
         </Link>
 
@@ -1165,7 +1165,12 @@ function AppRoutes() {
       <Route path="/tenant/modules" element={<GenericEndpointPage title="Modules" subtitle="Modules." endpoint="/api/tenant/modules" />} />
       <Route path="/tenant/integrations" element={<GenericEndpointPage title="Integrations" subtitle="Integrations." endpoint="/api/tenant/integrations" />} />
       <Route path="/tenant/branding" element={<GenericEndpointPage title="Branding" subtitle="Tenant branding configuration." endpoint="/api/tenant/branding" />} />
-<Route path="/sales/raftopoulos/pilot-demo" element={<PilotDemoDashboardPage />} />
+<Route path="/sales/raftopoulos/executive-demo-home" element={<RaftopoulosExecutiveDemoHomePage />} />
+      <Route path="/sales/raftopoulos/executive-demo-script" element={<RaftopoulosExecutiveDemoScriptPage />} />
+      <Route path="/sales/raftopoulos/pilot-walkthrough-scenario" element={<RaftopoulosPilotWalkthroughScenarioPage />} />
+      <Route path="/sales/raftopoulos/pilot-walkthrough" element={<Navigate to="/sales/raftopoulos/pilot-walkthrough-scenario" replace />} />
+      <Route path="/super-admin/tenant-provisioning" element={<SuperAdminTenantProvisioningPage />} />
+      <Route path="/sales/raftopoulos/pilot-demo" element={<PilotDemoDashboardPage />} />
       {SystemRoutes({
   ReleaseCandidatePage,
   GenericEndpointPage
