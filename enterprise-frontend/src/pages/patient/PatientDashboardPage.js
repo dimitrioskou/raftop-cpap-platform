@@ -1,745 +1,468 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import {
-  getPatientDashboard,
-  submitPatientCallback,
-  submitPatientIssue,
-  submitTherapyAcknowledgement
-} from './helpers/patientApi';
+import React, { useCallback, useEffect, useState } from 'react';
 
-const FALLBACK_DATA = {
-  patient: {
-    fullName: 'Patient User',
-    email: 'patient@raftop.local',
-    machineModel: 'CPAP Device',
-    maskType: 'Standard mask'
-  },
-  metrics: {
-    myAirScore: 74,
-    avgUsageHours: 5.6,
-    adherenceRate: 82,
-    ahi: 3.8,
-    leakRate: 18,
-    streakDays: 9,
-    therapyStatus: 'on_track',
-    nextGoal: 'Συνέχισε σταθερή χρήση >4 ώρες/νύχτα.',
-    lastSyncAt: new Date().toISOString()
-  },
-  signalsSummary: {
-    total: 2,
-    openCount: 1,
-    callbackCount: 1,
-    issueCount: 0,
-    unresolvedHighPriorityCount: 0
-  },
-  recentSignals: [],
-  actions: [
-    {
-      key: 'request_callback',
-      title: 'Request callback',
-      description: 'Ζήτησε επικοινωνία από την ομάδα υποστήριξης.'
-    },
-    {
-      key: 'report_issue',
-      title: 'Report issue',
-      description: 'Δήλωσε πρόβλημα θεραπείας ή μάσκας.'
-    },
-    {
-      key: 'acknowledge_therapy',
-      title: 'Acknowledge therapy',
-      description: 'Επιβεβαίωσε ότι συνεχίζεις συστηματικά τη θεραπεία.'
+import PatientLayout from '../../patient/PatientLayout';
+
+const API_BASE =
+  process.env.REACT_APP_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
+
+function getTenantId() {
+  return (
+    localStorage.getItem('tenant_id') ||
+    localStorage.getItem('tenantId') ||
+    'raftopoulos-live'
+  );
+}
+
+function getPatientId() {
+  return (
+    localStorage.getItem('patient_id') ||
+    localStorage.getItem('patientId') ||
+    'demo-patient-001'
+  );
+}
+
+async function fetchPatientTherapySummary() {
+  const tenantId = getTenantId();
+  const patientId = getPatientId();
+
+  const url = new URL(`${API_BASE}/api/patient/therapy/summary`);
+  url.searchParams.set('patientId', patientId);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'x-tenant-id': tenantId
     }
-  ]
-};
+  });
 
-function metricTone(status) {
-  if (status === 'critical') return 'danger';
-  if (status === 'at_risk') return 'warning';
-  return 'success';
-}
+  const payload = await response.json();
 
-function formatDateTime(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.message || payload.error || 'Patient therapy summary request failed.');
+  }
 
-  return new Intl.DateTimeFormat('el-GR', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(date);
-}
-
-function severityBadge(value) {
-  const normalized = String(value || '').toLowerCase();
-  if (normalized === 'high') return 'badge badge-danger';
-  if (normalized === 'medium') return 'badge badge-warning';
-  return 'badge badge-neutral';
+  return payload;
 }
 
 export default function PatientDashboardPage() {
-  const [data, setData] = useState(FALLBACK_DATA);
-  const [loading, setLoading] = useState(true);
-  const [fallbackMode, setFallbackMode] = useState(false);
-  const [message, setMessage] = useState('');
-  const [busyAction, setBusyAction] = useState('');
-  const [callbackPhone, setCallbackPhone] = useState('');
-  const [callbackWindow, setCallbackWindow] = useState('');
-  const [callbackNote, setCallbackNote] = useState('');
-  const [issueType, setIssueType] = useState('mask_discomfort');
-  const [issueSeverity, setIssueSeverity] = useState('medium');
-  const [issueNote, setIssueNote] = useState('');
-  const [ackNote, setAckNote] = useState('');
+  const [payload, setPayload] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function loadDashboard() {
+  const load = useCallback(async () => {
     setLoading(true);
+    setError('');
 
     try {
-      const payload = await getPatientDashboard();
-      setData(payload || FALLBACK_DATA);
-      setFallbackMode(false);
-    } catch (_error) {
-      setData(FALLBACK_DATA);
-      setFallbackMode(true);
+      const result = await fetchPatientTherapySummary();
+      setPayload(result);
+    } catch (err) {
+      setError(err.message || 'Patient dashboard load failed.');
+      setPayload(null);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    loadDashboard();
   }, []);
 
-  async function handleCallbackSubmit() {
-    setBusyAction('callback');
-    setMessage('');
+  useEffect(() => {
+    load();
+  }, [load]);
 
-    try {
-      await submitPatientCallback({
-        phone: callbackPhone,
-        preferredWindow: callbackWindow,
-        note: callbackNote
-      });
+  const summary = payload?.summary || {};
+  const lastNight = payload?.lastNight || {};
+  const insights = payload?.insights || [];
+  const actions = payload?.actions || [];
 
-      setMessage('Το αίτημα callback καταχωρήθηκε.');
-      setCallbackPhone('');
-      setCallbackWindow('');
-      setCallbackNote('');
-      await loadDashboard();
-    } catch (error) {
-      setMessage(error.message || 'Η αποστολή callback απέτυχε.');
-    } finally {
-      setBusyAction('');
-    }
-  }
+  const nightsUsed = Number(summary.nightsUsed || 0);
+  const totalNights = Number(summary.totalNights || 30);
+  const adherencePercent =
+    totalNights > 0 ? Math.round((nightsUsed / totalNights) * 100) : 0;
 
-  async function handleIssueSubmit() {
-    setBusyAction('issue');
-    setMessage('');
-
-    try {
-      await submitPatientIssue({
-        issueType,
-        severity: issueSeverity,
-        note: issueNote
-      });
-
-      setMessage('Το πρόβλημα στάλθηκε στην ομάδα υποστήριξης.');
-      setIssueNote('');
-      await loadDashboard();
-    } catch (error) {
-      setMessage(error.message || 'Η αναφορά προβλήματος απέτυχε.');
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function handleAckSubmit() {
-    setBusyAction('ack');
-    setMessage('');
-
-    try {
-      await submitTherapyAcknowledgement({
-        note: ackNote
-      });
-
-      setMessage('Η επιβεβαίωση θεραπείας καταχωρήθηκε.');
-      setAckNote('');
-      await loadDashboard();
-    } catch (error) {
-      setMessage(error.message || 'Η επιβεβαίωση θεραπείας απέτυχε.');
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  const statusClass = useMemo(
-    () => `metric-card ${metricTone(data?.metrics?.therapyStatus)}`,
-    [data?.metrics?.therapyStatus]
-  );
-
-  if (loading) {
-    return (
-      <div className="patient-page">
-        <style>{pageStyles}</style>
-        <div className="page-card">Loading patient dashboard...</div>
-      </div>
-    );
-  }
+  const ahiValue = summary.ahiLastNight ?? lastNight.ahi ?? null;
+  const leakValue = summary.leakLastNight ?? lastNight.leak ?? null;
 
   return (
-    <div className="patient-page">
-      <style>{pageStyles}</style>
-
-      <section className="hero-card">
+    <PatientLayout>
+      <section style={heroCard}>
         <div>
-          <div className="eyebrow">PATIENT DASHBOARD</div>
-          <h1>{data.patient?.fullName || 'Patient Dashboard'}</h1>
-          <p>
-            Παρακολούθηση θεραπείας, γρήγορες ενέργειες και άμεση σύνδεση με την ομάδα φροντίδας.
+          <div style={kicker}>TODAY&apos;S THERAPY STATUS</div>
+          <h2 style={title}>{summary.status || 'Therapy Overview'}</h2>
+          <p style={subtitle}>
+            {summary.status === 'Controlled'
+              ? 'Your CPAP therapy usage is currently within the target zone. Keep using your device every night.'
+              : 'Your therapy data is available. Review your usage, AHI, leak and next best actions.'}
           </p>
 
-          <div className="hero-meta">
-            <span className="pill">{data.patient?.machineModel || 'CPAP Device'}</span>
-            <span className="pill">{data.patient?.maskType || 'Mask'}</span>
-            <span className="pill">Last sync: {formatDateTime(data.metrics?.lastSyncAt)}</span>
-          </div>
-        </div>
-
-        <div className="score-card">
-          <div className="score-label">Therapy Score</div>
-          <div className="score-value">{data.metrics?.myAirScore ?? 0}</div>
-          <div className="score-subtitle">Patient-side equivalent layer</div>
-        </div>
-      </section>
-
-      {fallbackMode ? (
-        <div className="banner warning">
-          Fallback mode ενεργό. Τα patient endpoints δεν απάντησαν και εμφανίζονται demo δεδομένα.
-        </div>
-      ) : null}
-
-      {message ? <div className="banner info">{message}</div> : null}
-
-      <section className="metrics-grid">
-        <div className={statusClass}>
-          <div className="metric-label">Therapy Status</div>
-          <div className="metric-value">{data.metrics?.therapyStatus || 'on_track'}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Avg Usage</div>
-          <div className="metric-value">{data.metrics?.avgUsageHours ?? 0}h</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Adherence</div>
-          <div className="metric-value">{data.metrics?.adherenceRate ?? 0}%</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">AHI</div>
-          <div className="metric-value">{data.metrics?.ahi ?? 0}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Leak Rate</div>
-          <div className="metric-value">{data.metrics?.leakRate ?? 0}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Streak</div>
-          <div className="metric-value">{data.metrics?.streakDays ?? 0} days</div>
-        </div>
-      </section>
-
-      <section className="two-col">
-        <div className="page-card">
-          <div className="section-title">Next Goal</div>
-          <p className="section-text">{data.metrics?.nextGoal || '—'}</p>
-
-          <div className="signals-summary">
-            <div className="summary-pill">
-              Total Signals
-              <strong>{data.signalsSummary?.total ?? 0}</strong>
-            </div>
-            <div className="summary-pill">
-              Open
-              <strong>{data.signalsSummary?.openCount ?? 0}</strong>
-            </div>
-            <div className="summary-pill">
-              Callbacks
-              <strong>{data.signalsSummary?.callbackCount ?? 0}</strong>
-            </div>
-            <div className="summary-pill">
-              Issues
-              <strong>{data.signalsSummary?.issueCount ?? 0}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="page-card">
-          <div className="section-title">Recent Signals</div>
-
-          <div className="signal-list">
-            {(data.recentSignals || []).length ? (
-              data.recentSignals.map((signal) => (
-                <div key={signal.id} className="signal-item">
-                  <div className="signal-top">
-                    <strong>{signal.title}</strong>
-                    <span className="badge badge-neutral">{signal.status}</span>
-                  </div>
-                  <div className="signal-text">{signal.description || '—'}</div>
-                  <div className="signal-meta">
-                    {signal.kindLabel || signal.kind} • {formatDateTime(signal.createdAt)}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="empty-text">Δεν υπάρχουν πρόσφατα patient signals.</div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="actions-grid">
-        <div className="page-card action-card">
-          <div className="section-title">Request Callback</div>
-
-          <input
-            className="input"
-            value={callbackPhone}
-            onChange={(event) => setCallbackPhone(event.target.value)}
-            placeholder="Phone"
-          />
-          <input
-            className="input"
-            value={callbackWindow}
-            onChange={(event) => setCallbackWindow(event.target.value)}
-            placeholder="Preferred window"
-          />
-          <textarea
-            className="textarea"
-            rows="4"
-            value={callbackNote}
-            onChange={(event) => setCallbackNote(event.target.value)}
-            placeholder="Extra note"
-          />
-
-          <button
-            type="button"
-            className="primary-btn"
-            disabled={busyAction === 'callback'}
-            onClick={handleCallbackSubmit}
-          >
-            {busyAction === 'callback' ? 'Submitting...' : 'Submit Callback'}
+          <button type="button" onClick={load} style={refreshButton}>
+            {loading ? 'Loading...' : 'Refresh Therapy Data'}
           </button>
         </div>
 
-        <div className="page-card action-card">
-          <div className="section-title">Report Issue</div>
-
-          <select
-            className="input"
-            value={issueType}
-            onChange={(event) => setIssueType(event.target.value)}
-          >
-            <option value="mask_discomfort">Mask discomfort</option>
-            <option value="high_leak">High leak</option>
-            <option value="dryness">Dryness / irritation</option>
-            <option value="machine_problem">Machine problem</option>
-            <option value="other">Other</option>
-          </select>
-
-          <select
-            className="input"
-            value={issueSeverity}
-            onChange={(event) => setIssueSeverity(event.target.value)}
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-
-          <div className={severityBadge(issueSeverity)}>{issueSeverity}</div>
-
-          <textarea
-            className="textarea"
-            rows="4"
-            value={issueNote}
-            onChange={(event) => setIssueNote(event.target.value)}
-            placeholder="Describe the issue"
-          />
-
-          <button
-            type="button"
-            className="warn-btn"
-            disabled={busyAction === 'issue'}
-            onClick={handleIssueSubmit}
-          >
-            {busyAction === 'issue' ? 'Submitting...' : 'Report Issue'}
-          </button>
-        </div>
-
-        <div className="page-card action-card">
-          <div className="section-title">Acknowledge Therapy</div>
-
-          <textarea
-            className="textarea"
-            rows="6"
-            value={ackNote}
-            onChange={(event) => setAckNote(event.target.value)}
-            placeholder="Π.χ. συνεχίζω κανονικά τη θεραπεία και θα διατηρήσω καθημερινή χρήση."
-          />
-
-          <button
-            type="button"
-            className="success-btn"
-            disabled={busyAction === 'ack'}
-            onClick={handleAckSubmit}
-          >
-            {busyAction === 'ack' ? 'Submitting...' : 'Acknowledge Therapy'}
-          </button>
+        <div style={scoreBox}>
+          <div style={score}>{summary.adherenceScore ?? 0}</div>
+          <div style={scoreLabel}>Adherence Score</div>
         </div>
       </section>
+
+      {error && <section style={errorBox}>{error}</section>}
+
+      <section style={metricsGrid}>
+        <Metric
+          label="Usage Last Night"
+          value={lastNight.usage || `${summary.usageHoursLastNight || 0}h`}
+          tone="success"
+        />
+
+        <Metric
+          label="Nights Used"
+          value={`${nightsUsed}/${totalNights}`}
+        />
+
+        <Metric
+          label="AHI"
+          value={ahiValue ?? '-'}
+          tone={Number(ahiValue || 99) <= 5 ? 'success' : 'warning'}
+        />
+
+        <Metric
+          label="Leak"
+          value={`${leakValue ?? 0} L/min`}
+          tone={Number(leakValue || 99) <= 24 ? 'success' : 'warning'}
+        />
+
+        <Metric
+          label="Mask Fit"
+          value={`${summary.maskFit ?? lastNight.maskFit ?? 0}%`}
+          tone="success"
+        />
+
+        <Metric
+          label="Trend"
+          value={summary.trend || 'Stable'}
+          tone="success"
+        />
+      </section>
+
+      <section style={twoGrid}>
+        <section style={panel}>
+          <h3 style={sectionTitle}>What this means</h3>
+
+          {insights.length === 0 ? (
+            <div style={empty}>No therapy insights available.</div>
+          ) : (
+            <div style={insightList}>
+              {insights.map((item) => (
+                <Insight
+                  key={`${item.title}-${item.status}`}
+                  title={item.title}
+                  text={item.text}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={panel}>
+          <h3 style={sectionTitle}>Next best actions</h3>
+
+          {actions.length === 0 ? (
+            <div style={empty}>No recommended actions available.</div>
+          ) : (
+            <div style={actionList}>
+              {actions.map((item) => (
+                <Action key={item} text={item} />
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+
+      <section style={panel}>
+        <h3 style={sectionTitle}>30-day adherence progress</h3>
+
+        <div style={progressShell}>
+          <div style={progressTop}>
+            <span>{nightsUsed} nights used</span>
+            <span>{adherencePercent}%</span>
+          </div>
+
+          <div style={progressTrack}>
+            <div
+              style={{
+                ...progressFill,
+                width: `${adherencePercent}%`
+              }}
+            />
+          </div>
+        </div>
+      </section>
+    </PatientLayout>
+  );
+}
+
+function Metric({ label, value, tone = 'default' }) {
+  const style =
+    tone === 'success'
+      ? metricSuccess
+      : tone === 'warning'
+        ? metricWarning
+        : metricCard;
+
+  return (
+    <div style={style}>
+      <div style={metricLabel}>{label}</div>
+      <div style={metricValue}>{value}</div>
     </div>
   );
 }
 
-const pageStyles = `
-  .patient-page {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    padding: 18px;
-  }
+function Insight({ title, text }) {
+  return (
+    <div style={insightCard}>
+      <div style={insightTitle}>{title}</div>
+      <div style={insightText}>{text}</div>
+    </div>
+  );
+}
 
-  .hero-card,
-  .page-card,
-  .metric-card {
-    background: rgba(255,255,255,0.94);
-    border: 1px solid rgba(148,163,184,0.18);
-    border-radius: 24px;
-    box-shadow: 0 14px 40px rgba(15,23,42,0.08);
-  }
+function Action({ text }) {
+  return (
+    <div style={actionCard}>
+      <span style={check}>✓</span>
+      <span>{text}</span>
+    </div>
+  );
+}
 
-  .hero-card {
-    padding: 24px;
-    display: grid;
-    grid-template-columns: 1.4fr 320px;
-    gap: 18px;
-    background:
-      radial-gradient(circle at top right, rgba(99,102,241,0.10), transparent 28%),
-      linear-gradient(135deg, rgba(255,255,255,0.98), rgba(238,242,255,0.96));
-  }
+const heroCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 24,
+  padding: 24,
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 18,
+  flexWrap: 'wrap',
+  boxShadow: '0 12px 30px rgba(15,23,42,0.06)'
+};
 
-  .eyebrow {
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #4f46e5;
-    margin-bottom: 8px;
-  }
+const kicker = {
+  color: '#0f766e',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.14em'
+};
 
-  .hero-card h1 {
-    margin: 0;
-    color: #0f172a;
-    font-size: 30px;
-  }
+const title = {
+  margin: '8px 0',
+  color: '#0f172a',
+  fontSize: 30,
+  lineHeight: 1.1
+};
 
-  .hero-card p,
-  .section-text {
-    color: #475569;
-    line-height: 1.7;
-  }
+const subtitle = {
+  margin: 0,
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.55,
+  maxWidth: 720
+};
 
-  .hero-meta {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-top: 14px;
-  }
+const refreshButton = {
+  marginTop: 14,
+  border: 0,
+  background: '#0f766e',
+  color: '#ffffff',
+  borderRadius: 13,
+  padding: '10px 14px',
+  fontWeight: 1000,
+  cursor: 'pointer'
+};
 
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 8px 12px;
-    border-radius: 999px;
-    background: #eef2ff;
-    border: 1px solid #c7d2fe;
-    color: #4338ca;
-    font-size: 12px;
-    font-weight: 700;
-  }
+const scoreBox = {
+  minWidth: 170,
+  background: '#ecfdf5',
+  border: '1px solid #bbf7d0',
+  borderRadius: 20,
+  padding: 18,
+  textAlign: 'center'
+};
 
-  .score-card {
-    border-radius: 24px;
-    padding: 22px;
-    background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
-    color: #fff;
-    box-shadow: 0 18px 34px rgba(79,70,229,0.24);
-  }
+const score = {
+  color: '#166534',
+  fontSize: 48,
+  fontWeight: 1000,
+  lineHeight: 1
+};
 
-  .score-label {
-    font-size: 13px;
-    font-weight: 800;
-    opacity: 0.9;
-  }
+const scoreLabel = {
+  marginTop: 8,
+  color: '#166534',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .score-value {
-    font-size: 64px;
-    font-weight: 900;
-    line-height: 1;
-    margin-top: 10px;
-  }
+const errorBox = {
+  background: '#fef2f2',
+  border: '1px solid #fecaca',
+  color: '#991b1b',
+  borderRadius: 18,
+  padding: 16,
+  fontWeight: 850
+};
 
-  .score-subtitle {
-    margin-top: 10px;
-    font-size: 13px;
-    opacity: 0.9;
-  }
+const metricsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+  gap: 14
+};
 
-  .banner {
-    border-radius: 18px;
-    padding: 14px 16px;
-    font-size: 14px;
-    font-weight: 600;
-  }
+const metricCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 20,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .banner.warning {
-    background: #fff7ed;
-    color: #9a3412;
-    border: 1px solid #fdba74;
-  }
+const metricSuccess = {
+  ...metricCard,
+  background: '#f0fdf4',
+  border: '1px solid #bbf7d0'
+};
 
-  .banner.info {
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-  }
+const metricWarning = {
+  ...metricCard,
+  background: '#fffbeb',
+  border: '1px solid #fde68a'
+};
 
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 14px;
-  }
+const metricLabel = {
+  color: '#64748b',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .metric-card {
-    padding: 18px;
-  }
+const metricValue = {
+  marginTop: 8,
+  color: '#0f172a',
+  fontSize: 28,
+  fontWeight: 1000
+};
 
-  .metric-card.success {
-    border: 1px solid #86efac;
-    background: #ecfdf5;
-  }
+const twoGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  gap: 14
+};
 
-  .metric-card.warning {
-    border: 1px solid #fdba74;
-    background: #fff7ed;
-  }
+const panel = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 22,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .metric-card.danger {
-    border: 1px solid #fecaca;
-    background: #fef2f2;
-  }
+const sectionTitle = {
+  margin: '0 0 12px',
+  color: '#0f172a',
+  fontSize: 20
+};
 
-  .metric-label {
-    font-size: 12px;
-    font-weight: 800;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+const empty = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  color: '#64748b',
+  borderRadius: 14,
+  padding: 14,
+  fontWeight: 800
+};
 
-  .metric-value {
-    margin-top: 10px;
-    font-size: 28px;
-    font-weight: 900;
-    color: #0f172a;
-  }
+const insightList = {
+  display: 'grid',
+  gap: 10
+};
 
-  .two-col {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
-  }
+const insightCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14
+};
 
-  .page-card {
-    padding: 20px;
-  }
+const insightTitle = {
+  color: '#0f172a',
+  fontWeight: 1000,
+  marginBottom: 5
+};
 
-  .section-title {
-    font-size: 15px;
-    font-weight: 900;
-    color: #0f172a;
-    margin-bottom: 10px;
-  }
+const insightText = {
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.45
+};
 
-  .signals-summary {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    margin-top: 14px;
-  }
+const actionList = {
+  display: 'grid',
+  gap: 10
+};
 
-  .summary-pill {
-    padding: 12px 14px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    color: #475569;
-    font-size: 13px;
-    font-weight: 700;
-    display: flex;
-    justify-content: space-between;
-  }
+const actionCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14,
+  display: 'flex',
+  gap: 10,
+  alignItems: 'center',
+  color: '#334155',
+  fontWeight: 800
+};
 
-  .summary-pill strong {
-    color: #0f172a;
-  }
+const check = {
+  background: '#dcfce7',
+  color: '#166534',
+  border: '1px solid #bbf7d0',
+  borderRadius: 999,
+  width: 24,
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontWeight: 1000
+};
 
-  .signal-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
+const progressShell = {
+  display: 'grid',
+  gap: 10
+};
 
-  .signal-item {
-    padding: 14px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-  }
+const progressTop = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 10,
+  color: '#334155',
+  fontWeight: 900
+};
 
-  .signal-top {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: center;
-  }
+const progressTrack = {
+  height: 16,
+  background: '#e2e8f0',
+  borderRadius: 999,
+  overflow: 'hidden'
+};
 
-  .signal-text {
-    margin-top: 8px;
-    color: #475569;
-    line-height: 1.6;
-  }
-
-  .signal-meta {
-    margin-top: 8px;
-    font-size: 12px;
-    color: #64748b;
-  }
-
-  .empty-text {
-    color: #64748b;
-  }
-
-  .actions-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
-  }
-
-  .action-card {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .input,
-  .textarea {
-    width: 100%;
-    box-sizing: border-box;
-    border: 1px solid #d0d5dd;
-    border-radius: 14px;
-    padding: 12px 14px;
-    background: #fff;
-    color: #101828;
-    font-size: 14px;
-    outline: none;
-  }
-
-  .textarea {
-    resize: vertical;
-  }
-
-  .primary-btn,
-  .warn-btn,
-  .success-btn {
-    border: 0;
-    border-radius: 14px;
-    padding: 12px 14px;
-    font-weight: 800;
-    cursor: pointer;
-    color: white;
-  }
-
-  .primary-btn {
-    background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
-  }
-
-  .warn-btn {
-    background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-  }
-
-  .success-btn {
-    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  }
-
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-    width: fit-content;
-    text-transform: uppercase;
-  }
-
-  .badge-danger {
-    background: #fef2f2;
-    color: #b91c1c;
-    border: 1px solid #fecaca;
-  }
-
-  .badge-warning {
-    background: #fff7ed;
-    color: #c2410c;
-    border: 1px solid #fdba74;
-  }
-
-  .badge-neutral {
-    background: #eef2ff;
-    color: #4338ca;
-    border: 1px solid #c7d2fe;
-  }
-
-  @media (max-width: 1280px) {
-    .metrics-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .actions-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 980px) {
-    .hero-card,
-    .two-col {
-      grid-template-columns: 1fr;
-    }
-
-    .metrics-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 640px) {
-    .metrics-grid,
-    .signals-summary {
-      grid-template-columns: 1fr;
-    }
-  }
-`;
+const progressFill = {
+  height: '100%',
+  background: '#0f766e',
+  borderRadius: 999
+};

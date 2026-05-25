@@ -1,597 +1,524 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { getPatientNightlyAnalysis } from './helpers/nightlyAnalysisApi';
-import {
-  badgeToneFromInsightType,
-  buildFlagCards,
-  formatDateLabel
-} from './helpers/nightlyInsightHelpers';
+import React, { useCallback, useEffect, useState } from 'react';
 
-const FALLBACK_DATA = {
-  availableDates: ['2026-04-28', '2026-04-27', '2026-04-26'],
-  selectedDate: '2026-04-28',
-  previousDate: '2026-04-27',
-  night: {
-    date: '2026-04-28',
-    usageHours: 6.4,
-    ahi: 2.6,
-    leakRate: 12.2,
-    avgPressure: 8.4,
-    maskSeal: 93,
-    interruptions: 1,
-    sessionStart: '2026-04-28T22:24:00.000Z',
-    sessionEnd: '2026-04-29T04:48:00.000Z',
-    deviceModel: 'AirSense 10',
-    maskType: 'Nasal Mask'
-  },
-  flags: {
-    lowUsage: false,
-    highLeak: false,
-    residualAhiRisk: false,
-    fragmentedSleep: false,
-    maskSealConcern: false
-  },
-  insights: [
-    {
-      type: 'positive',
-      title: 'Stable therapy night',
-      description: 'Καλή χρήση με ελεγχόμενη διαρροή και ικανοποιητικό AHI.'
+import PatientLayout from '../../patient/PatientLayout';
+
+const API_BASE =
+  process.env.REACT_APP_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
+
+function getTenantId() {
+  return (
+    localStorage.getItem('tenant_id') ||
+    localStorage.getItem('tenantId') ||
+    'raftopoulos-live'
+  );
+}
+
+function getPatientId() {
+  return (
+    localStorage.getItem('patient_id') ||
+    localStorage.getItem('patientId') ||
+    'demo-patient-001'
+  );
+}
+
+async function fetchNightlyAnalysis() {
+  const tenantId = getTenantId();
+  const patientId = getPatientId();
+
+  const url = new URL(`${API_BASE}/api/patient/nightly-analysis`);
+  url.searchParams.set('patientId', patientId);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'x-tenant-id': tenantId
     }
-  ],
-  recommendations: [
-    'Συνέχισε με σταθερό nightly use και παρακολούθηση της συνέπειας.'
-  ],
-  trendPoints: [
-    { label: '22:30', pressure: 8.2, leakRate: 11, ahiSignal: 2.3, stability: 88 },
-    { label: '23:15', pressure: 8.5, leakRate: 12, ahiSignal: 2.1, stability: 90 },
-    { label: '00:00', pressure: 8.3, leakRate: 11.5, ahiSignal: 2.4, stability: 89 },
-    { label: '00:45', pressure: 8.6, leakRate: 13, ahiSignal: 2.8, stability: 86 }
-  ]
-};
+  });
 
-function metricCard(title, value, subtitle) {
-  return { title, value, subtitle };
+  const payload = await response.json();
+
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.message || payload.error || 'Nightly analysis request failed.');
+  }
+
+  return payload;
 }
 
 export default function PatientNightlyAnalysisPage() {
-  const [data, setData] = useState(FALLBACK_DATA);
-  const [loading, setLoading] = useState(true);
-  const [fallbackMode, setFallbackMode] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [payload, setPayload] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function loadNight(date = '') {
+  const load = useCallback(async () => {
     setLoading(true);
+    setError('');
 
     try {
-      const payload = await getPatientNightlyAnalysis(date);
-      setData(payload || FALLBACK_DATA);
-      setSelectedDate(payload?.selectedDate || FALLBACK_DATA.selectedDate);
-      setFallbackMode(false);
-    } catch (_error) {
-      setData(FALLBACK_DATA);
-      setSelectedDate(FALLBACK_DATA.selectedDate);
-      setFallbackMode(true);
+      setPayload(await fetchNightlyAnalysis());
+    } catch (err) {
+      setError(err.message || 'Nightly analysis load failed.');
+      setPayload(null);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    loadNight();
   }, []);
 
-  const metricCards = useMemo(() => {
-    return [
-      metricCard('Usage', `${data.night?.usageHours ?? 0}h`, 'Nightly therapy usage'),
-      metricCard('AHI', data.night?.ahi ?? 0, 'Residual events'),
-      metricCard('Leak', data.night?.leakRate ?? 0, 'Mask leak rate'),
-      metricCard('Pressure', data.night?.avgPressure ?? 0, 'Average pressure'),
-      metricCard('Mask Seal', `${data.night?.maskSeal ?? 0}%`, 'Mask fit quality'),
-      metricCard('Interruptions', data.night?.interruptions ?? 0, 'Night session breaks')
-    ];
-  }, [data]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const flagCards = useMemo(() => buildFlagCards(data.flags || {}), [data.flags]);
-
-  if (loading) {
-    return (
-      <div className="patient-nightly-analysis-page">
-        <style>{pageStyles}</style>
-        <div className="page-card">Loading nightly analysis...</div>
-      </div>
-    );
-  }
+  const night = payload?.night || {};
+  const score = payload?.score || {};
+  const interpretation = payload?.interpretation || {};
+  const insights = payload?.insights || [];
+  const recommendations = payload?.recommendations || [];
+  const escalation = payload?.providerEscalation || {};
 
   return (
-    <div className="patient-nightly-analysis-page">
-      <style>{pageStyles}</style>
-
-      <section className="hero-card">
+    <PatientLayout>
+      <section style={heroCard}>
         <div>
-          <div className="eyebrow">NIGHTLY ANALYSIS</div>
-          <h1>Night-by-Night Therapy Review</h1>
-          <p>
-            Αναλυτική εικόνα της τελευταίας νύχτας με flags, trend points και πρακτικές συστάσεις.
+          <div style={kicker}>SLEEPHQ-STYLE NIGHTLY ANALYSIS</div>
+          <h2 style={title}>{score.status || 'Nightly Analysis'}</h2>
+          <p style={subtitle}>
+            A patient-friendly interpretation of usage, AHI, leak, pressure stability and mask fit for the latest therapy night.
           </p>
 
-          <div className="hero-meta">
-            <span className="hero-chip">{formatDateLabel(data.selectedDate)}</span>
-            <span className="hero-chip">{data.night?.deviceModel || 'CPAP Device'}</span>
-            <span className="hero-chip">{data.night?.maskType || 'Mask'}</span>
-          </div>
+          <button type="button" onClick={load} style={refreshButton}>
+            {loading ? 'Loading...' : 'Refresh Nightly Analysis'}
+          </button>
         </div>
 
-        <div className="hero-controls">
-          <div className="control-label">Night</div>
-          <select
-            className="input"
-            value={selectedDate}
-            onChange={(e) => {
-              const nextDate = e.target.value;
-              setSelectedDate(nextDate);
-              loadNight(nextDate);
-            }}
-          >
-            {(data.availableDates || []).map((date) => (
-              <option key={date} value={date}>
-                {date}
-              </option>
-            ))}
-          </select>
-
-          {data.previousDate ? (
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={() => {
-                window.location.href = `/patient/compare-nights?date=${encodeURIComponent(data.selectedDate)}&otherDate=${encodeURIComponent(data.previousDate)}`;
-              }}
-            >
-              Compare with Previous Night
-            </button>
-          ) : null}
+        <div style={scoreBox}>
+          <div style={scoreNumber}>{score.nightScore ?? 0}</div>
+          <div style={scoreLabel}>Night Score</div>
         </div>
       </section>
 
-      {fallbackMode ? (
-        <div className="banner warning">
-          Nightly analysis σε fallback mode. Εμφανίζονται demo δεδομένα.
-        </div>
-      ) : null}
+      {error && <section style={errorBox}>{error}</section>}
 
-      <section className="metrics-grid">
-        {metricCards.map((card) => (
-          <div key={card.title} className="metric-card">
-            <div className="metric-label">{card.title}</div>
-            <div className="metric-value">{card.value}</div>
-            <div className="metric-subtitle">{card.subtitle}</div>
-          </div>
-        ))}
+      <section style={metricsGrid}>
+        <Metric label="Usage" value={night.usage || `${night.usageHours || 0}h`} tone="success" />
+        <Metric label="AHI" value={night.ahi ?? '-'} tone={Number(night.ahi || 99) <= 5 ? 'success' : 'warning'} />
+        <Metric label="Leak" value={`${night.leak ?? 0} L/min`} tone={Number(night.leak || 99) <= 24 ? 'success' : 'warning'} />
+        <Metric label="Pressure Avg" value={`${night.pressureAverage ?? 0} cmH₂O`} />
+        <Metric label="Pressure P95" value={`${night.pressureP95 ?? 0} cmH₂O`} />
+        <Metric label="Mask Fit" value={`${night.maskFit ?? 0}%`} tone="success" />
       </section>
 
-      <section className="flags-card page-card">
-        <div className="section-title">Night Flags</div>
-        <div className="flag-grid">
-          {flagCards.map((flag) => (
-            <div key={flag.key} className={`flag-pill ${flag.tone}`}>
-              <span>{flag.label}</span>
-              <strong>{flag.active ? 'ON' : 'OK'}</strong>
-            </div>
-          ))}
-        </div>
+      <section style={metricsGrid}>
+        <Metric label="Usage Score" value={score.usageScore ?? 0} tone="success" />
+        <Metric label="AHI Score" value={score.ahiScore ?? 0} tone="success" />
+        <Metric label="Leak Score" value={score.leakScore ?? 0} tone="success" />
+        <Metric label="Pressure Score" value={score.pressureScore ?? 0} />
       </section>
 
-      <section className="analysis-grid">
-        <div className="page-card">
-          <div className="section-title">Night Trend</div>
+      <section style={twoGrid}>
+        <section style={panel}>
+          <h3 style={sectionTitle}>Clinical-style interpretation</h3>
 
-          <div className="trend-chart">
-            {(data.trendPoints || []).map((point, index) => (
-              <div key={`${point.label}-${index}`} className="trend-row">
-                <div className="trend-time">{point.label}</div>
-                <div className="trend-bars">
-                  <div className="bar-wrap">
-                    <div className="bar-label">Pressure</div>
-                    <div className="bar-track">
-                      <div className="bar-fill pressure" style={{ width: `${Math.min(100, point.pressure * 8)}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="bar-wrap">
-                    <div className="bar-label">Leak</div>
-                    <div className="bar-track">
-                      <div className="bar-fill leak" style={{ width: `${Math.min(100, point.leakRate * 3)}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="bar-wrap">
-                    <div className="bar-label">Stability</div>
-                    <div className="bar-track">
-                      <div className="bar-fill stability" style={{ width: `${Math.min(100, point.stability)}%` }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div style={interpretationGrid}>
+            <Interpretation label="Usage Quality" value={interpretation.usageQuality} />
+            <Interpretation label="AHI Control" value={interpretation.ahiControl} />
+            <Interpretation label="Leak Risk" value={interpretation.leakRisk} />
+            <Interpretation label="Pressure Stability" value={interpretation.pressureStability} />
+            <Interpretation label="Mask Fit" value={interpretation.maskFit} />
           </div>
-        </div>
+        </section>
 
-        <div className="page-card">
-          <div className="section-title">Insights</div>
+        <section style={escalation.required ? escalationPanelDanger : panel}>
+          <h3 style={sectionTitle}>Provider escalation</h3>
 
-          <div className="insight-list">
-            {(data.insights || []).map((insight, index) => (
-              <div key={`${insight.title}-${index}`} className={`insight-card ${badgeToneFromInsightType(insight.type)}`}>
-                <div className="insight-title">{insight.title}</div>
-                <div className="insight-text">{insight.description}</div>
-              </div>
-            ))}
+          <div style={escalationBadge(escalation.required)}>
+            {escalation.required ? 'REVIEW REQUIRED' : 'NO ESCALATION'}
           </div>
 
-          <div className="section-title spaced">Recommendations</div>
-          <div className="recommendation-list">
-            {(data.recommendations || []).map((item, index) => (
-              <div key={`${item}-${index}`} className="recommendation-item">
-                <div className="recommendation-index">{index + 1}</div>
-                <div className="recommendation-text">{item}</div>
-              </div>
-            ))}
+          <p style={escalationText}>
+            {escalation.reason || 'No escalation decision available.'}
+          </p>
+
+          <div style={priorityText}>
+            Priority: <strong>{escalation.priority || 'none'}</strong>
           </div>
-        </div>
+        </section>
       </section>
+
+      <section style={panel}>
+        <h3 style={sectionTitle}>Nightly insights</h3>
+
+        {insights.length === 0 ? (
+          <div style={empty}>No nightly insights available.</div>
+        ) : (
+          <div style={insightGrid}>
+            {insights.map((item) => (
+              <Insight
+                key={`${item.severity}-${item.title}`}
+                severity={item.severity}
+                title={item.title}
+                text={item.text}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section style={panel}>
+        <h3 style={sectionTitle}>Patient recommendations</h3>
+
+        {recommendations.length === 0 ? (
+          <div style={empty}>No recommendations available.</div>
+        ) : (
+          <div style={recommendationGrid}>
+            {recommendations.map((item) => (
+              <Recommendation key={item} text={item} />
+            ))}
+          </div>
+        )}
+      </section>
+    </PatientLayout>
+  );
+}
+
+function Metric({ label, value, tone = 'default' }) {
+  const style =
+    tone === 'success'
+      ? metricSuccess
+      : tone === 'warning'
+        ? metricWarning
+        : metricCard;
+
+  return (
+    <div style={style}>
+      <div style={metricLabel}>{label}</div>
+      <div style={metricValue}>{value}</div>
     </div>
   );
 }
 
-const pageStyles = `
-  .patient-nightly-analysis-page {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    padding: 18px;
-  }
+function Interpretation({ label, value }) {
+  return (
+    <div style={interpretationCard}>
+      <div style={interpretationLabel}>{label}</div>
+      <div style={interpretationValue}>{value || '-'}</div>
+    </div>
+  );
+}
 
-  .hero-card,
-  .page-card,
-  .metric-card {
-    background: rgba(255,255,255,0.94);
-    border: 1px solid rgba(148,163,184,0.18);
-    border-radius: 24px;
-    box-shadow: 0 14px 40px rgba(15,23,42,0.08);
-  }
+function Insight({ severity, title, text }) {
+  const badge =
+    severity === 'critical'
+      ? criticalBadge
+      : severity === 'warning'
+        ? warningBadge
+        : positiveBadge;
 
-  .hero-card {
-    padding: 24px;
-    display: grid;
-    grid-template-columns: 1.35fr 320px;
-    gap: 18px;
-    background:
-      radial-gradient(circle at top right, rgba(8,145,178,0.12), transparent 28%),
-      linear-gradient(135deg, rgba(255,255,255,0.98), rgba(236,254,255,0.96));
-  }
+  return (
+    <div style={insightCard}>
+      <span style={badge}>{severity || 'info'}</span>
+      <div style={insightTitle}>{title}</div>
+      <div style={insightText}>{text}</div>
+    </div>
+  );
+}
 
-  .eyebrow {
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #0891b2;
-    margin-bottom: 8px;
-  }
+function Recommendation({ text }) {
+  return (
+    <div style={recommendationCard}>
+      <span style={check}>✓</span>
+      <span>{text}</span>
+    </div>
+  );
+}
 
-  h1 {
-    margin: 0;
-    font-size: 30px;
-    color: #0f172a;
-  }
+const heroCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 24,
+  padding: 24,
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 18,
+  flexWrap: 'wrap',
+  boxShadow: '0 12px 30px rgba(15,23,42,0.06)'
+};
 
-  p {
-    color: #475569;
-    line-height: 1.7;
-  }
+const kicker = {
+  color: '#7c3aed',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.14em'
+};
 
-  .hero-meta {
-    margin-top: 14px;
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
+const title = {
+  margin: '8px 0',
+  color: '#0f172a',
+  fontSize: 30,
+  lineHeight: 1.1
+};
 
-  .hero-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: 8px 10px;
-    border-radius: 999px;
-    background: #ecfeff;
-    color: #0f766e;
-    border: 1px solid #a5f3fc;
-    font-size: 12px;
-    font-weight: 800;
-  }
+const subtitle = {
+  margin: 0,
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.55,
+  maxWidth: 780
+};
 
-  .hero-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    justify-content: center;
-  }
+const refreshButton = {
+  marginTop: 14,
+  border: 0,
+  background: '#7c3aed',
+  color: '#ffffff',
+  borderRadius: 13,
+  padding: '10px 14px',
+  fontWeight: 1000,
+  cursor: 'pointer'
+};
 
-  .control-label,
-  .section-title {
-    font-size: 14px;
-    font-weight: 900;
-    color: #0f172a;
-  }
+const scoreBox = {
+  minWidth: 170,
+  background: '#f5f3ff',
+  border: '1px solid #ddd6fe',
+  borderRadius: 20,
+  padding: 18,
+  textAlign: 'center'
+};
 
-  .section-title.spaced {
-    margin-top: 16px;
-  }
+const scoreNumber = {
+  color: '#5b21b6',
+  fontSize: 48,
+  fontWeight: 1000,
+  lineHeight: 1
+};
 
-  .input {
-    border: 1px solid #d0d5dd;
-    border-radius: 14px;
-    padding: 12px 14px;
-    background: #fff;
-    color: #101828;
-    font-size: 14px;
-    outline: none;
-  }
+const scoreLabel = {
+  marginTop: 8,
+  color: '#5b21b6',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .primary-btn {
-    border: 0;
-    border-radius: 14px;
-    padding: 12px 14px;
-    font-weight: 900;
-    background: linear-gradient(135deg, #0891b2 0%, #155e75 100%);
-    color: #fff;
-    cursor: pointer;
-  }
+const errorBox = {
+  background: '#fef2f2',
+  border: '1px solid #fecaca',
+  color: '#991b1b',
+  borderRadius: 18,
+  padding: 16,
+  fontWeight: 850
+};
 
-  .banner {
-    border-radius: 18px;
-    padding: 14px 16px;
-    font-size: 14px;
-    font-weight: 600;
-  }
+const metricsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+  gap: 14
+};
 
-  .banner.warning {
-    background: #fff7ed;
-    color: #9a3412;
-    border: 1px solid #fdba74;
-  }
+const metricCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 20,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 12px;
-  }
+const metricSuccess = {
+  ...metricCard,
+  background: '#f0fdf4',
+  border: '1px solid #bbf7d0'
+};
 
-  .metric-card {
-    padding: 16px;
-  }
+const metricWarning = {
+  ...metricCard,
+  background: '#fffbeb',
+  border: '1px solid #fde68a'
+};
 
-  .metric-label {
-    font-size: 12px;
-    font-weight: 900;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+const metricLabel = {
+  color: '#64748b',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .metric-value {
-    margin-top: 8px;
-    font-size: 28px;
-    font-weight: 900;
-    color: #0f172a;
-  }
+const metricValue = {
+  marginTop: 8,
+  color: '#0f172a',
+  fontSize: 28,
+  fontWeight: 1000
+};
 
-  .metric-subtitle {
-    margin-top: 8px;
-    color: #64748b;
-    font-size: 12px;
-    line-height: 1.5;
-  }
+const twoGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  gap: 14
+};
 
-  .flags-card,
-  .page-card {
-    padding: 20px;
-  }
+const panel = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 22,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .flag-grid {
-    margin-top: 12px;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-  }
+const escalationPanelDanger = {
+  ...panel,
+  background: '#fff1f2',
+  border: '1px solid #fecdd3'
+};
 
-  .flag-pill {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 12px 14px;
-    border-radius: 16px;
-    font-size: 12px;
-    font-weight: 900;
-  }
+const sectionTitle = {
+  margin: '0 0 12px',
+  color: '#0f172a',
+  fontSize: 20
+};
 
-  .flag-pill.success {
-    background: #ecfdf5;
-    color: #047857;
-    border: 1px solid #86efac;
-  }
+const interpretationGrid = {
+  display: 'grid',
+  gap: 10
+};
 
-  .flag-pill.warning {
-    background: #fff7ed;
-    color: #c2410c;
-    border: 1px solid #fdba74;
-  }
+const interpretationCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14
+};
 
-  .analysis-grid {
-    display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: 18px;
-  }
+const interpretationLabel = {
+  color: '#64748b',
+  fontSize: 11,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .trend-chart {
-    margin-top: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
+const interpretationValue = {
+  marginTop: 6,
+  color: '#334155',
+  fontWeight: 750,
+  lineHeight: 1.45
+};
 
-  .trend-row {
-    display: grid;
-    grid-template-columns: 70px 1fr;
-    gap: 12px;
-    align-items: center;
-  }
+function escalationBadge(required) {
+  return {
+    display: 'inline-block',
+    background: required ? '#fee2e2' : '#dcfce7',
+    color: required ? '#991b1b' : '#166534',
+    border: `1px solid ${required ? '#fecaca' : '#bbf7d0'}`,
+    borderRadius: 999,
+    padding: '7px 10px',
+    fontSize: 12,
+    fontWeight: 1000
+  };
+}
 
-  .trend-time {
-    font-size: 12px;
-    font-weight: 900;
-    color: #475569;
-  }
+const escalationText = {
+  color: '#334155',
+  fontWeight: 750,
+  lineHeight: 1.5
+};
 
-  .trend-bars {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
+const priorityText = {
+  color: '#0f172a',
+  fontWeight: 850
+};
 
-  .bar-wrap {
-    display: grid;
-    grid-template-columns: 70px 1fr;
-    gap: 10px;
-    align-items: center;
-  }
+const insightGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+  gap: 12
+};
 
-  .bar-label {
-    font-size: 11px;
-    font-weight: 800;
-    color: #64748b;
-    text-transform: uppercase;
-  }
+const insightCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14
+};
 
-  .bar-track {
-    height: 10px;
-    border-radius: 999px;
-    background: #e2e8f0;
-    overflow: hidden;
-  }
+const positiveBadge = {
+  display: 'inline-block',
+  background: '#dcfce7',
+  color: '#166534',
+  border: '1px solid #bbf7d0',
+  borderRadius: 999,
+  padding: '5px 8px',
+  fontSize: 11,
+  fontWeight: 1000,
+  marginBottom: 8
+};
 
-  .bar-fill {
-    height: 100%;
-    border-radius: 999px;
-  }
+const warningBadge = {
+  ...positiveBadge,
+  background: '#fffbeb',
+  color: '#92400e',
+  border: '1px solid #fde68a'
+};
 
-  .bar-fill.pressure {
-    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-  }
+const criticalBadge = {
+  ...positiveBadge,
+  background: '#fee2e2',
+  color: '#991b1b',
+  border: '1px solid #fecaca'
+};
 
-  .bar-fill.leak {
-    background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-  }
+const insightTitle = {
+  color: '#0f172a',
+  fontWeight: 1000,
+  marginBottom: 5
+};
 
-  .bar-fill.stability {
-    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  }
+const insightText = {
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.45
+};
 
-  .insight-list,
-  .recommendation-list {
-    margin-top: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
+const recommendationGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+  gap: 10
+};
 
-  .insight-card {
-    padding: 14px;
-    border-radius: 16px;
-    border: 1px solid transparent;
-  }
+const recommendationCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 12,
+  display: 'flex',
+  gap: 10,
+  alignItems: 'center',
+  color: '#334155',
+  fontWeight: 800
+};
 
-  .insight-card.success {
-    background: #ecfdf5;
-    border-color: #86efac;
-    color: #047857;
-  }
+const check = {
+  background: '#dcfce7',
+  color: '#166534',
+  border: '1px solid #bbf7d0',
+  borderRadius: 999,
+  width: 24,
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontWeight: 1000,
+  flex: '0 0 auto'
+};
 
-  .insight-card.warning {
-    background: #fff7ed;
-    border-color: #fdba74;
-    color: #c2410c;
-  }
-
-  .insight-card.danger {
-    background: #fef2f2;
-    border-color: #fecaca;
-    color: #b91c1c;
-  }
-
-  .insight-card.neutral {
-    background: #f8fafc;
-    border-color: #cbd5e1;
-    color: #475569;
-  }
-
-  .insight-title {
-    font-size: 14px;
-    font-weight: 900;
-  }
-
-  .insight-text {
-    margin-top: 6px;
-    line-height: 1.6;
-  }
-
-  .recommendation-item {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    padding: 14px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-  }
-
-  .recommendation-index {
-    width: 30px;
-    min-width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #ecfeff;
-    color: #0f766e;
-    font-weight: 900;
-  }
-
-  .recommendation-text {
-    color: #334155;
-    line-height: 1.6;
-  }
-
-  @media (max-width: 1200px) {
-    .metrics-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .flag-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 980px) {
-    .hero-card,
-    .analysis-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 720px) {
-    .metrics-grid,
-    .flag-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-`;
+const empty = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  color: '#64748b',
+  borderRadius: 14,
+  padding: 14,
+  fontWeight: 800
+};

@@ -1,456 +1,524 @@
-import React, { useEffect, useState } from 'react';
-import { getPatientNightComparison, getPatientNightlyAnalysis } from './helpers/nightlyAnalysisApi';
-import {
-  compareToneFromDelta,
-  formatDateLabel
-} from './helpers/nightlyInsightHelpers';
+import React, { useCallback, useEffect, useState } from 'react';
 
-const FALLBACK_COMPARE = {
-  availableDates: ['2026-04-28', '2026-04-27', '2026-04-26'],
-  current: {
-    night: {
-      date: '2026-04-28',
-      usageHours: 6.2,
-      ahi: 2.4,
-      leakRate: 11.8,
-      avgPressure: 8.3,
-      maskSeal: 93,
-      interruptions: 1
-    }
-  },
-  comparison: {
-    night: {
-      date: '2026-04-27',
-      usageHours: 4.8,
-      ahi: 4.1,
-      leakRate: 21.4,
-      avgPressure: 8.0,
-      maskSeal: 86,
-      interruptions: 2
-    }
-  },
-  deltas: {
-    usageHours: { current: 6.2, previous: 4.8, delta: '+1.4h' },
-    ahi: { current: 2.4, previous: 4.1, delta: '-1.7' },
-    leakRate: { current: 11.8, previous: 21.4, delta: '-9.6' },
-    avgPressure: { current: 8.3, previous: 8.0, delta: '+0.3' },
-    maskSeal: { current: 93, previous: 86, delta: '+7%' }
-  },
-  interpretation: [
-    'Η τρέχουσα νύχτα είχε καλύτερη χρήση από τη νύχτα σύγκρισης.',
-    'Η διαρροή μάσκας βελτιώθηκε.',
-    'Το residual AHI ήταν χαμηλότερο στην τρέχουσα νύχτα.'
-  ]
-};
+import PatientLayout from '../../patient/PatientLayout';
 
-export default function PatientNightComparePage() {
-  const [availableDates, setAvailableDates] = useState(FALLBACK_COMPARE.availableDates);
-  const [date, setDate] = useState(FALLBACK_COMPARE.current.night.date);
-  const [otherDate, setOtherDate] = useState(FALLBACK_COMPARE.comparison.night.date);
-  const [data, setData] = useState(FALLBACK_COMPARE);
-  const [loading, setLoading] = useState(true);
-  const [fallbackMode, setFallbackMode] = useState(false);
+const API_BASE =
+  process.env.REACT_APP_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
 
-  async function loadAvailableDates() {
-    try {
-      const nightly = await getPatientNightlyAnalysis();
-      const dates = nightly?.availableDates || [];
-      if (dates.length) {
-        setAvailableDates(dates);
-        setDate((prev) => prev || dates[0]);
-        setOtherDate((prev) => prev || dates[1] || dates[0]);
-      }
-    } catch (_error) {
-      // keep fallback
+function getTenantId() {
+  return (
+    localStorage.getItem('tenant_id') ||
+    localStorage.getItem('tenantId') ||
+    'raftopoulos-live'
+  );
+}
+
+function getPatientId() {
+  return (
+    localStorage.getItem('patient_id') ||
+    localStorage.getItem('patientId') ||
+    'demo-patient-001'
+  );
+}
+
+async function fetchNightCompare() {
+  const tenantId = getTenantId();
+  const patientId = getPatientId();
+
+  const url = new URL(`${API_BASE}/api/patient/night-compare`);
+  url.searchParams.set('patientId', patientId);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'x-tenant-id': tenantId
     }
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.message || payload.error || 'Night compare request failed.');
   }
 
-  async function loadComparison(nextDate, nextOtherDate) {
+  return payload;
+}
+
+export default function PatientNightComparePage() {
+  const [payload, setPayload] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
     setLoading(true);
+    setError('');
 
     try {
-      const payload = await getPatientNightComparison(nextDate, nextOtherDate);
-      setData(payload || FALLBACK_COMPARE);
-      setFallbackMode(false);
-    } catch (_error) {
-      setData(FALLBACK_COMPARE);
-      setFallbackMode(true);
+      setPayload(await fetchNightCompare());
+    } catch (err) {
+      setError(err.message || 'Night compare load failed.');
+      setPayload(null);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    loadAvailableDates();
   }, []);
 
   useEffect(() => {
-    if (date && otherDate && date !== otherDate) {
-      loadComparison(date, otherDate);
-    } else {
-      setLoading(false);
-    }
-  }, [date, otherDate]);
+    load();
+  }, [load]);
 
-  if (loading) {
-    return (
-      <div className="patient-night-compare-page">
-        <style>{pageStyles}</style>
-        <div className="page-card">Loading night comparison...</div>
-      </div>
-    );
-  }
+  const lastNight = payload?.lastNight || {};
+  const previousNight = payload?.previousNight || {};
+  const sevenDayAverage = payload?.sevenDayAverage || {};
+  const comparison = payload?.comparison || {};
+  const signals = payload?.signals || {};
+  const summary = payload?.summary || {};
+
+  const vsPrevious = comparison.vsPrevious || {};
+  const vsSevenDayAverage = comparison.vsSevenDayAverage || {};
 
   return (
-    <div className="patient-night-compare-page">
-      <style>{pageStyles}</style>
-
-      <section className="hero-card">
+    <PatientLayout>
+      <section style={heroCard}>
         <div>
-          <div className="eyebrow">COMPARE NIGHTS</div>
-          <h1>Night-to-Night Comparison</h1>
-          <p>
-            Σύγκριση δύο νυχτών για χρήση, leak, AHI, pressure και mask seal.
+          <div style={kicker}>NIGHT COMPARISON</div>
+          <h2 style={title}>{summary.status || 'Night Compare'}</h2>
+          <p style={subtitle}>
+            {summary.patientMessage ||
+              'Compare your latest CPAP night with the previous night and your 7-day average.'}
           </p>
+
+          <button type="button" onClick={load} style={refreshButton}>
+            {loading ? 'Loading...' : 'Refresh Comparison'}
+          </button>
         </div>
 
-        <div className="hero-controls">
-          <div className="field">
-            <div className="control-label">Current night</div>
-            <select className="input" value={date} onChange={(e) => setDate(e.target.value)}>
-              {availableDates.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+        <div style={statusBox(signals.providerAttentionRequired)}>
+          <div style={statusMain}>
+            {signals.providerAttentionRequired ? 'Review' : 'Stable'}
           </div>
-
-          <div className="field">
-            <div className="control-label">Compare with</div>
-            <select className="input" value={otherDate} onChange={(e) => setOtherDate(e.target.value)}>
-              {availableDates.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div style={statusLabel}>Provider Attention</div>
         </div>
       </section>
 
-      {fallbackMode ? (
-        <div className="banner warning">
-          Night comparison σε fallback mode. Εμφανίζονται demo δεδομένα.
-        </div>
-      ) : null}
+      {error && <section style={errorBox}>{error}</section>}
 
-      <section className="comparison-header page-card">
-        <div className="night-box">
-          <div className="night-label">Current</div>
-          <div className="night-date">{formatDateLabel(data.current?.night?.date)}</div>
-        </div>
-        <div className="vs-box">VS</div>
-        <div className="night-box">
-          <div className="night-label">Comparison</div>
-          <div className="night-date">{formatDateLabel(data.comparison?.night?.date)}</div>
-        </div>
+      <section style={metricsGrid}>
+        <Metric label="Last Night Usage" value={`${lastNight.usageHours ?? 0}h`} tone="success" />
+        <Metric label="Previous Usage" value={`${previousNight.usageHours ?? 0}h`} />
+        <Metric label="7-day Avg Usage" value={`${sevenDayAverage.usageHours ?? 0}h`} />
+        <Metric label="Last AHI" value={lastNight.ahi ?? '-'} tone={Number(lastNight.ahi || 99) <= 5 ? 'success' : 'warning'} />
+        <Metric label="Last Leak" value={`${lastNight.leak ?? 0} L/min`} tone={Number(lastNight.leak || 99) <= 24 ? 'success' : 'warning'} />
+        <Metric label="Night Score" value={lastNight.nightScore ?? '-'} tone="success" />
       </section>
 
-      <section className="compare-grid">
-        {[
-          ['Usage Hours', data.deltas?.usageHours?.current, data.deltas?.usageHours?.previous, data.deltas?.usageHours?.delta, false],
-          ['AHI', data.deltas?.ahi?.current, data.deltas?.ahi?.previous, data.deltas?.ahi?.delta, true],
-          ['Leak Rate', data.deltas?.leakRate?.current, data.deltas?.leakRate?.previous, data.deltas?.leakRate?.delta, true],
-          ['Avg Pressure', data.deltas?.avgPressure?.current, data.deltas?.avgPressure?.previous, data.deltas?.avgPressure?.delta, false],
-          ['Mask Seal', data.deltas?.maskSeal?.current, data.deltas?.maskSeal?.previous, data.deltas?.maskSeal?.delta, false]
-        ].map(([label, current, previous, delta, preferLower]) => (
-          <div key={label} className="compare-card">
-            <div className="compare-label">{label}</div>
-            <div className="compare-values">
-              <div className="value-block">
-                <span className="value-caption">Current</span>
-                <strong>{current ?? '—'}</strong>
-              </div>
-              <div className="value-block">
-                <span className="value-caption">Previous</span>
-                <strong>{previous ?? '—'}</strong>
-              </div>
-            </div>
-            <div className={`delta-pill ${compareToneFromDelta(delta, preferLower)}`}>
-              {delta || '0'}
-            </div>
-          </div>
-        ))}
+      <section style={twoGrid}>
+        <ComparisonPanel
+          title="Last night vs previous night"
+          rows={Object.values(vsPrevious)}
+        />
+
+        <ComparisonPanel
+          title="Last night vs 7-day average"
+          rows={Object.values(vsSevenDayAverage)}
+        />
       </section>
 
-      <section className="page-card">
-        <div className="section-title">Interpretation</div>
-        <div className="interpretation-list">
-          {(data.interpretation || []).map((item, index) => (
-            <div key={`${item}-${index}`} className="interpretation-item">
-              <div className="interpretation-index">{index + 1}</div>
-              <div className="interpretation-text">{item}</div>
-            </div>
-          ))}
+      <section style={twoGrid}>
+        <SignalPanel
+          title="Improvement signals"
+          rows={signals.improvementSignals || []}
+          emptyText="No clear improvement signals detected."
+          tone="success"
+        />
+
+        <SignalPanel
+          title="Deterioration signals"
+          rows={signals.deteriorationSignals || []}
+          emptyText="No meaningful deterioration signals detected."
+          tone="danger"
+        />
+      </section>
+
+      <section style={panel}>
+        <h3 style={sectionTitle}>Provider attention decision</h3>
+
+        <div style={decisionGrid}>
+          <Info label="Attention Required" value={signals.providerAttentionRequired ? 'YES' : 'NO'} />
+          <Info label="Priority" value={signals.providerPriority || 'none'} />
+          <Info label="Headline" value={summary.headline || '-'} />
         </div>
       </section>
+    </PatientLayout>
+  );
+}
+
+function Metric({ label, value, tone = 'default' }) {
+  const style =
+    tone === 'success'
+      ? metricSuccess
+      : tone === 'warning'
+        ? metricWarning
+        : metricCard;
+
+  return (
+    <div style={style}>
+      <div style={metricLabel}>{label}</div>
+      <div style={metricValue}>{value}</div>
     </div>
   );
 }
 
-const pageStyles = `
-  .patient-night-compare-page {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    padding: 18px;
-  }
+function ComparisonPanel({ title, rows }) {
+  const cleanRows = (rows || []).filter(Boolean);
 
-  .hero-card,
-  .page-card,
-  .compare-card {
-    background: rgba(255,255,255,0.94);
-    border: 1px solid rgba(148,163,184,0.18);
-    border-radius: 24px;
-    box-shadow: 0 14px 40px rgba(15,23,42,0.08);
-  }
+  return (
+    <section style={panel}>
+      <h3 style={sectionTitle}>{title}</h3>
 
-  .hero-card {
-    padding: 24px;
-    display: grid;
-    grid-template-columns: 1.35fr 360px;
-    gap: 18px;
-    background:
-      radial-gradient(circle at top right, rgba(79,70,229,0.12), transparent 28%),
-      linear-gradient(135deg, rgba(255,255,255,0.98), rgba(238,242,255,0.96));
-  }
+      {cleanRows.length === 0 ? (
+        <div style={empty}>No comparison data available.</div>
+      ) : (
+        <div style={comparisonList}>
+          {cleanRows.map((row) => (
+            <ComparisonRow key={row.label} row={row} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
-  .eyebrow {
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #4f46e5;
-    margin-bottom: 8px;
-  }
+function ComparisonRow({ row }) {
+  const isImproved = row.direction === 'improved';
+  const isWorsened = row.direction === 'worsened';
 
-  h1 {
-    margin: 0;
-    font-size: 30px;
-    color: #0f172a;
-  }
+  return (
+    <div style={comparisonRow}>
+      <div>
+        <div style={comparisonLabel}>{row.label}</div>
+        <div style={comparisonSub}>
+          Current: {row.current}{row.unit ? ` ${row.unit}` : ''} · Previous: {row.previous}{row.unit ? ` ${row.unit}` : ''}
+        </div>
+      </div>
 
-  p {
-    color: #475569;
-    line-height: 1.7;
-  }
+      <span style={isImproved ? goodBadge : isWorsened ? dangerBadge : neutralBadge}>
+        {row.direction || 'stable'} {row.delta > 0 ? '+' : ''}{row.delta}
+      </span>
+    </div>
+  );
+}
 
-  .hero-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    justify-content: center;
-  }
+function SignalPanel({ title, rows, emptyText, tone }) {
+  return (
+    <section style={panel}>
+      <h3 style={sectionTitle}>{title}</h3>
 
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
+      {rows.length === 0 ? (
+        <div style={empty}>{emptyText}</div>
+      ) : (
+        <div style={signalList}>
+          {rows.map((item) => (
+            <div key={item} style={tone === 'danger' ? dangerSignal : successSignal}>
+              <span style={signalIcon}>{tone === 'danger' ? '!' : '✓'}</span>
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
-  .control-label,
-  .section-title {
-    font-size: 14px;
-    font-weight: 900;
-    color: #0f172a;
-  }
+function Info({ label, value }) {
+  return (
+    <div style={infoCard}>
+      <div style={infoLabel}>{label}</div>
+      <div style={infoValue}>{String(value || '-')}</div>
+    </div>
+  );
+}
 
-  .input {
-    border: 1px solid #d0d5dd;
-    border-radius: 14px;
-    padding: 12px 14px;
-    background: #fff;
-    color: #101828;
-    font-size: 14px;
-    outline: none;
-  }
+const heroCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 24,
+  padding: 24,
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 18,
+  flexWrap: 'wrap',
+  boxShadow: '0 12px 30px rgba(15,23,42,0.06)'
+};
 
-  .banner {
-    border-radius: 18px;
-    padding: 14px 16px;
-    font-size: 14px;
-    font-weight: 600;
-  }
+const kicker = {
+  color: '#be123c',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.14em'
+};
 
-  .banner.warning {
-    background: #fff7ed;
-    color: #9a3412;
-    border: 1px solid #fdba74;
-  }
+const title = {
+  margin: '8px 0',
+  color: '#0f172a',
+  fontSize: 30,
+  lineHeight: 1.1
+};
 
-  .comparison-header {
-    padding: 20px;
-    display: grid;
-    grid-template-columns: 1fr 100px 1fr;
-    gap: 14px;
-    align-items: center;
-  }
+const subtitle = {
+  margin: 0,
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.55,
+  maxWidth: 780
+};
 
-  .night-box {
-    padding: 16px;
-    border-radius: 18px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    text-align: center;
-  }
+const refreshButton = {
+  marginTop: 14,
+  border: 0,
+  background: '#be123c',
+  color: '#ffffff',
+  borderRadius: 13,
+  padding: '10px 14px',
+  fontWeight: 1000,
+  cursor: 'pointer'
+};
 
-  .night-label {
-    font-size: 12px;
-    font-weight: 900;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+function statusBox(required) {
+  return {
+    minWidth: 180,
+    background: required ? '#fff1f2' : '#ecfdf5',
+    border: `1px solid ${required ? '#fecdd3' : '#bbf7d0'}`,
+    borderRadius: 20,
+    padding: 18,
+    textAlign: 'center',
+    display: 'grid',
+    alignContent: 'center'
+  };
+}
 
-  .night-date {
-    margin-top: 8px;
-    font-size: 20px;
-    font-weight: 900;
-    color: #0f172a;
-  }
+const statusMain = {
+  color: '#0f172a',
+  fontSize: 34,
+  fontWeight: 1000,
+  lineHeight: 1
+};
 
-  .vs-box {
-    text-align: center;
-    font-size: 28px;
-    font-weight: 900;
-    color: #4f46e5;
-  }
+const statusLabel = {
+  marginTop: 8,
+  color: '#475569',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .compare-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 12px;
-  }
+const errorBox = {
+  background: '#fef2f2',
+  border: '1px solid #fecaca',
+  color: '#991b1b',
+  borderRadius: 18,
+  padding: 16,
+  fontWeight: 850
+};
 
-  .compare-card {
-    padding: 16px;
-  }
+const metricsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+  gap: 14
+};
 
-  .compare-label {
-    font-size: 12px;
-    font-weight: 900;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+const metricCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 20,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .compare-values {
-    margin-top: 12px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
+const metricSuccess = {
+  ...metricCard,
+  background: '#f0fdf4',
+  border: '1px solid #bbf7d0'
+};
 
-  .value-block {
-    padding: 12px;
-    border-radius: 14px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
+const metricWarning = {
+  ...metricCard,
+  background: '#fffbeb',
+  border: '1px solid #fde68a'
+};
 
-  .value-caption {
-    font-size: 11px;
-    font-weight: 800;
-    color: #64748b;
-    text-transform: uppercase;
-  }
+const metricLabel = {
+  color: '#64748b',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .delta-pill {
-    margin-top: 12px;
-    padding: 10px 12px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 900;
-    text-align: center;
-  }
+const metricValue = {
+  marginTop: 8,
+  color: '#0f172a',
+  fontSize: 28,
+  fontWeight: 1000
+};
 
-  .delta-pill.success {
-    background: #ecfdf5;
-    color: #047857;
-    border: 1px solid #86efac;
-  }
+const twoGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  gap: 14
+};
 
-  .delta-pill.warning {
-    background: #fff7ed;
-    color: #c2410c;
-    border: 1px solid #fdba74;
-  }
+const panel = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 22,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .delta-pill.neutral {
-    background: #f8fafc;
-    color: #475569;
-    border: 1px solid #cbd5e1;
-  }
+const sectionTitle = {
+  margin: '0 0 12px',
+  color: '#0f172a',
+  fontSize: 20
+};
 
-  .page-card {
-    padding: 20px;
-  }
+const empty = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  color: '#64748b',
+  borderRadius: 14,
+  padding: 14,
+  fontWeight: 800
+};
 
-  .interpretation-list {
-    margin-top: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
+const comparisonList = {
+  display: 'grid',
+  gap: 10
+};
 
-  .interpretation-item {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    padding: 14px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-  }
+const comparisonRow = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14,
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'center',
+  flexWrap: 'wrap'
+};
 
-  .interpretation-index {
-    width: 30px;
-    min-width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #eef2ff;
-    color: #4338ca;
-    font-weight: 900;
-  }
+const comparisonLabel = {
+  color: '#0f172a',
+  fontWeight: 1000
+};
 
-  .interpretation-text {
-    color: #334155;
-    line-height: 1.6;
-  }
+const comparisonSub = {
+  marginTop: 5,
+  color: '#64748b',
+  fontSize: 13,
+  fontWeight: 750
+};
 
-  @media (max-width: 1280px) {
-    .compare-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
+const goodBadge = {
+  background: '#dcfce7',
+  color: '#166534',
+  border: '1px solid #bbf7d0',
+  borderRadius: 999,
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 1000
+};
 
-  @media (max-width: 980px) {
-    .hero-card,
-    .comparison-header {
-      grid-template-columns: 1fr;
-    }
-  }
+const dangerBadge = {
+  background: '#fee2e2',
+  color: '#991b1b',
+  border: '1px solid #fecaca',
+  borderRadius: 999,
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 1000
+};
 
-  @media (max-width: 680px) {
-    .compare-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-`;
+const neutralBadge = {
+  background: '#e2e8f0',
+  color: '#334155',
+  border: '1px solid #cbd5e1',
+  borderRadius: 999,
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 1000
+};
+
+const signalList = {
+  display: 'grid',
+  gap: 10
+};
+
+const successSignal = {
+  background: '#f0fdf4',
+  border: '1px solid #bbf7d0',
+  borderRadius: 16,
+  padding: 14,
+  display: 'flex',
+  gap: 10,
+  color: '#166534',
+  fontWeight: 850
+};
+
+const dangerSignal = {
+  background: '#fff1f2',
+  border: '1px solid #fecdd3',
+  borderRadius: 16,
+  padding: 14,
+  display: 'flex',
+  gap: 10,
+  color: '#991b1b',
+  fontWeight: 850
+};
+
+const signalIcon = {
+  width: 24,
+  height: 24,
+  borderRadius: 999,
+  background: '#ffffff',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontWeight: 1000,
+  flex: '0 0 auto'
+};
+
+const decisionGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 12
+};
+
+const infoCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 14,
+  padding: 12
+};
+
+const infoLabel = {
+  color: '#64748b',
+  fontSize: 11,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
+
+const infoValue = {
+  marginTop: 7,
+  color: '#0f172a',
+  fontSize: 14,
+  fontWeight: 850,
+  wordBreak: 'break-word'
+};

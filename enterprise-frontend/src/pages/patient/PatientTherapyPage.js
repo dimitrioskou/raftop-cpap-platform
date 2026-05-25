@@ -1,551 +1,486 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { getPatientTherapy } from './helpers/patientApi';
+import React, { useCallback, useEffect, useState } from 'react';
 
-const FALLBACK_DATA = {
-  overview: {
-    myAirScore: 74,
-    therapyStatus: 'on_track',
-    avgUsageHours: 5.6,
-    adherenceRate: 82,
-    ahi: 3.8,
-    leakRate: 18,
-    streakDays: 9,
-    lastSyncAt: new Date().toISOString()
-  },
-  trend: [
-    { x: 1, usageHours: 4.8, ahi: 4.2, leakRate: 19 },
-    { x: 2, usageHours: 5.1, ahi: 4.0, leakRate: 18 },
-    { x: 3, usageHours: 5.5, ahi: 3.9, leakRate: 17 },
-    { x: 4, usageHours: 6.0, ahi: 3.6, leakRate: 16 },
-    { x: 5, usageHours: 5.8, ahi: 3.7, leakRate: 18 },
-    { x: 6, usageHours: 6.3, ahi: 3.3, leakRate: 15 },
-    { x: 7, usageHours: 5.9, ahi: 3.5, leakRate: 17 }
-  ],
-  nextGoal: 'Συνέχισε σταθερή χρήση >4 ώρες/νύχτα.',
-  machine: {
-    machineModel: 'CPAP Device',
-    maskType: 'Standard mask'
-  },
-  recentSignals: []
-};
+import PatientLayout from '../../patient/PatientLayout';
 
-function formatDateTime(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+const API_BASE =
+  process.env.REACT_APP_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  'http://localhost:5001';
 
-  return new Intl.DateTimeFormat('el-GR', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(date);
+function getTenantId() {
+  return (
+    localStorage.getItem('tenant_id') ||
+    localStorage.getItem('tenantId') ||
+    'raftopoulos-live'
+  );
 }
 
-function getStatusTone(status) {
-  if (status === 'critical') return 'danger';
-  if (status === 'at_risk') return 'warning';
-  return 'success';
+function getPatientId() {
+  return (
+    localStorage.getItem('patient_id') ||
+    localStorage.getItem('patientId') ||
+    'demo-patient-001'
+  );
 }
 
-function buildMiniBars(trend) {
-  const maxUsage = Math.max(...trend.map((item) => Number(item.usageHours || 0)), 1);
+async function fetchPatientTherapySummary() {
+  const tenantId = getTenantId();
+  const patientId = getPatientId();
 
-  return trend.map((item) => ({
-    ...item,
-    usageHeight: `${Math.max(12, (Number(item.usageHours || 0) / maxUsage) * 100)}%`
-  }));
+  const url = new URL(`${API_BASE}/api/patient/therapy/summary`);
+  url.searchParams.set('patientId', patientId);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.message || payload.error || 'Patient therapy summary request failed.');
+  }
+
+  return payload;
 }
 
 export default function PatientTherapyPage() {
-  const [data, setData] = useState(FALLBACK_DATA);
-  const [loading, setLoading] = useState(true);
-  const [fallbackMode, setFallbackMode] = useState(false);
+  const [payload, setPayload] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function loadTherapy() {
+  const load = useCallback(async () => {
     setLoading(true);
+    setError('');
 
     try {
-      const payload = await getPatientTherapy();
-      setData(payload || FALLBACK_DATA);
-      setFallbackMode(false);
-    } catch (_error) {
-      setData(FALLBACK_DATA);
-      setFallbackMode(true);
+      setPayload(await fetchPatientTherapySummary());
+    } catch (err) {
+      setError(err.message || 'Patient therapy load failed.');
+      setPayload(null);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    loadTherapy();
   }, []);
 
-  const bars = useMemo(() => buildMiniBars(data.trend || []), [data.trend]);
-  const toneClass = useMemo(
-    () => getStatusTone(data.overview?.therapyStatus),
-    [data.overview?.therapyStatus]
-  );
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  if (loading) {
-    return (
-      <div className="therapy-page">
-        <style>{pageStyles}</style>
-        <div className="page-card">Loading therapy page...</div>
-      </div>
-    );
-  }
+  const lastNight = payload?.lastNight || {};
+  const insights = payload?.insights || [];
+  const actions = payload?.actions || [];
+  const nights = payload?.nights || [];
 
   return (
-    <div className="therapy-page">
-      <style>{pageStyles}</style>
-
-      <section className="hero-card">
+    <PatientLayout>
+      <section style={heroCard}>
         <div>
-          <div className="eyebrow">THERAPY</div>
-          <h1>Therapy Performance</h1>
-          <p>
-            Εδώ βλέπεις τη συνολική εικόνα της θεραπείας σου, την πρόσφατη τάση χρήσης και τα πιο σημαντικά metrics.
+          <div style={kicker}>NIGHTLY THERAPY SUMMARY</div>
+          <h2 style={title}>{lastNight.status || 'Therapy Summary'}</h2>
+          <p style={subtitle}>
+            Your therapy data shows usage, AHI, leak, pressure and mask-fit performance for the latest available night.
           </p>
 
-          <div className="meta-row">
-            <span className="pill">{data.machine?.machineModel || 'CPAP Device'}</span>
-            <span className="pill">{data.machine?.maskType || 'Mask'}</span>
-            <span className="pill">Last sync: {formatDateTime(data.overview?.lastSyncAt)}</span>
+          <button type="button" onClick={load} style={refreshButton}>
+            {loading ? 'Loading...' : 'Refresh Therapy Data'}
+          </button>
+        </div>
+
+        <div style={statusBadge}>
+          <div>{lastNight.usage || '0h'}</div>
+          <span style={statusBadgeText}>used</span>
+        </div>
+      </section>
+
+      {error && <section style={errorBox}>{error}</section>}
+
+      <section style={metricsGrid}>
+        <Metric label="Usage" value={lastNight.usage || `${lastNight.usageHours || 0}h`} tone="success" />
+        <Metric label="AHI" value={lastNight.ahi ?? '-'} tone={Number(lastNight.ahi || 99) <= 5 ? 'success' : 'warning'} />
+        <Metric label="Leak" value={`${lastNight.leak ?? 0} L/min`} tone={Number(lastNight.leak || 99) <= 24 ? 'success' : 'warning'} />
+        <Metric label="Avg Pressure" value={`${lastNight.pressure ?? 0} cmH₂O`} />
+        <Metric label="Mask Fit" value={`${lastNight.maskFit ?? 0}%`} tone="success" />
+        <Metric label="Sleep Window" value={`${lastNight.startTime || '-'} - ${lastNight.endTime || '-'}`} />
+      </section>
+
+      <section style={twoGrid}>
+        <section style={panel}>
+          <h3 style={sectionTitle}>SleepHQ-style nightly insights</h3>
+
+          {insights.length === 0 ? (
+            <div style={empty}>No nightly insights available.</div>
+          ) : (
+            <div style={insightList}>
+              {insights.map((item) => (
+                <Insight
+                  key={`${item.status}-${item.title}`}
+                  status={item.status}
+                  title={item.title}
+                  text={item.text}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={panel}>
+          <h3 style={sectionTitle}>Provider notes for patient</h3>
+
+          <div style={noteBox}>
+            No urgent action required. Maintain nightly usage and monitor comfort. If dryness, mask discomfort or repeated awakenings occur, contact the provider team.
           </div>
-        </div>
 
-        <div className={`hero-score ${toneClass}`}>
-          <div className="hero-score-label">Therapy Score</div>
-          <div className="hero-score-value">{data.overview?.myAirScore ?? 0}</div>
-          <div className="hero-score-subtitle">{data.overview?.therapyStatus || 'on_track'}</div>
-        </div>
+          {actions.length === 0 ? (
+            <div style={empty}>No recommended actions available.</div>
+          ) : (
+            <div style={actionGrid}>
+              {actions.map((action) => (
+                <Action key={action} label={action} />
+              ))}
+            </div>
+          )}
+        </section>
       </section>
 
-      {fallbackMode ? (
-        <div className="banner warning">
-          Fallback mode ενεργό. Τα therapy endpoints δεν απάντησαν και εμφανίζονται demo δεδομένα.
-        </div>
-      ) : null}
+      <section style={panel}>
+        <h3 style={sectionTitle}>7-night therapy trend</h3>
 
-      <section className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-label">Avg Usage</div>
-          <div className="metric-value">{data.overview?.avgUsageHours ?? 0}h</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Adherence</div>
-          <div className="metric-value">{data.overview?.adherenceRate ?? 0}%</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">AHI</div>
-          <div className="metric-value">{data.overview?.ahi ?? 0}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Leak Rate</div>
-          <div className="metric-value">{data.overview?.leakRate ?? 0}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Streak</div>
-          <div className="metric-value">{data.overview?.streakDays ?? 0} days</div>
-        </div>
-
-        <div className={`metric-card ${toneClass}`}>
-          <div className="metric-label">Status</div>
-          <div className="metric-value">{data.overview?.therapyStatus ?? 'on_track'}</div>
-        </div>
-      </section>
-
-      <section className="two-col">
-        <div className="page-card">
-          <div className="section-title">7-Day Usage Trend</div>
-
-          <div className="trend-chart">
-            {bars.map((item) => (
-              <div key={item.x} className="trend-col">
-                <div className="trend-bar-wrap">
-                  <div className="trend-bar" style={{ height: item.usageHeight }} />
+        {nights.length === 0 ? (
+          <div style={empty}>No night trend data available.</div>
+        ) : (
+          <div style={trendGrid}>
+            {nights.map((item) => (
+              <div key={item.date || item.day} style={trendCard}>
+                <div style={trendDay}>{item.day}</div>
+                <div style={barTrack}>
+                  <div
+                    style={{
+                      ...barFill,
+                      height: `${Math.min(100, Math.round((Number(item.usageHours || 0) / 8) * 100))}%`
+                    }}
+                  />
                 </div>
-                <div className="trend-hours">{item.usageHours}h</div>
-                <div className="trend-day">Day {item.x}</div>
+                <div style={trendValue}>{item.usageHours}h</div>
+                <div style={trendMeta}>AHI {item.ahi}</div>
+                <div style={trendMeta}>Leak {item.leak}</div>
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="page-card">
-          <div className="section-title">Coaching Snapshot</div>
-
-          <div className="coaching-list">
-            <div className="coach-item">
-              <strong>Next Goal</strong>
-              <p>{data.nextGoal || '—'}</p>
-            </div>
-
-            <div className="coach-item">
-              <strong>AHI Focus</strong>
-              <p>
-                {Number(data.overview?.ahi || 0) <= 5
-                  ? 'Το AHI φαίνεται ελεγχόμενο.'
-                  : 'Το AHI χρειάζεται επανεκτίμηση από την ομάδα θεραπείας.'}
-              </p>
-            </div>
-
-            <div className="coach-item">
-              <strong>Leak Focus</strong>
-              <p>
-                {Number(data.overview?.leakRate || 0) <= 24
-                  ? 'Η διαρροή μάσκας είναι σε αποδεκτό εύρος.'
-                  : 'Η διαρροή μάσκας είναι αυξημένη. Εξέτασε καλύτερη εφαρμογή.'}
-              </p>
-            </div>
-
-            <div className="coach-item">
-              <strong>Usage Focus</strong>
-              <p>
-                {Number(data.overview?.avgUsageHours || 0) >= 4
-                  ? 'Η χρήση είναι κοντά στον στόχο αποζημίωσης/compliance.'
-                  : 'Χρειάζεται πιο σταθερή νυχτερινή χρήση.'}
-              </p>
-            </div>
-          </div>
-        </div>
+        )}
       </section>
+    </PatientLayout>
+  );
+}
 
-      <section className="page-card">
-        <div className="section-title">Recent Patient Signals</div>
+function Metric({ label, value, tone = 'default' }) {
+  const style =
+    tone === 'success'
+      ? metricSuccess
+      : tone === 'warning'
+        ? metricWarning
+        : metricCard;
 
-        <div className="signals-list">
-          {(data.recentSignals || []).length ? (
-            data.recentSignals.map((signal) => (
-              <div key={signal.id} className="signal-item">
-                <div className="signal-head">
-                  <strong>{signal.title}</strong>
-                  <span className="signal-status">{signal.status}</span>
-                </div>
-                <div className="signal-body">{signal.description || '—'}</div>
-                <div className="signal-meta">{formatDateTime(signal.createdAt)}</div>
-              </div>
-            ))
-          ) : (
-            <div className="empty-text">Δεν υπάρχουν πρόσφατα therapy-related signals.</div>
-          )}
-        </div>
-      </section>
+  return (
+    <div style={style}>
+      <div style={metricLabel}>{label}</div>
+      <div style={metricValue}>{value}</div>
     </div>
   );
 }
 
-const pageStyles = `
-  .therapy-page {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    padding: 18px;
-  }
+function Insight({ status, title, text }) {
+  return (
+    <div style={insightCard}>
+      <span style={statusPill}>{status || 'Info'}</span>
+      <div style={insightTitle}>{title}</div>
+      <div style={insightText}>{text}</div>
+    </div>
+  );
+}
 
-  .hero-card,
-  .page-card,
-  .metric-card {
-    background: rgba(255,255,255,0.94);
-    border: 1px solid rgba(148,163,184,0.18);
-    border-radius: 24px;
-    box-shadow: 0 14px 40px rgba(15,23,42,0.08);
-  }
+function Action({ label }) {
+  return (
+    <div style={actionCard}>
+      <span style={check}>✓</span>
+      <span>{label}</span>
+    </div>
+  );
+}
 
-  .hero-card {
-    padding: 24px;
-    display: grid;
-    grid-template-columns: 1.4fr 320px;
-    gap: 18px;
-    background:
-      radial-gradient(circle at top right, rgba(6,182,212,0.10), transparent 28%),
-      linear-gradient(135deg, rgba(255,255,255,0.98), rgba(236,254,255,0.96));
-  }
+const heroCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 24,
+  padding: 24,
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 18,
+  flexWrap: 'wrap',
+  boxShadow: '0 12px 30px rgba(15,23,42,0.06)'
+};
 
-  .eyebrow {
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #0891b2;
-    margin-bottom: 8px;
-  }
+const kicker = {
+  color: '#1d4ed8',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.14em'
+};
 
-  .hero-card h1 {
-    margin: 0;
-    color: #0f172a;
-    font-size: 30px;
-  }
+const title = {
+  margin: '8px 0',
+  color: '#0f172a',
+  fontSize: 30,
+  lineHeight: 1.1
+};
 
-  .hero-card p {
-    color: #475569;
-    line-height: 1.7;
-  }
+const subtitle = {
+  margin: 0,
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.55,
+  maxWidth: 760
+};
 
-  .meta-row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-top: 14px;
-  }
+const refreshButton = {
+  marginTop: 14,
+  border: 0,
+  background: '#1d4ed8',
+  color: '#ffffff',
+  borderRadius: 13,
+  padding: '10px 14px',
+  fontWeight: 1000,
+  cursor: 'pointer'
+};
 
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 8px 12px;
-    border-radius: 999px;
-    background: #ecfeff;
-    border: 1px solid #a5f3fc;
-    color: #0f766e;
-    font-size: 12px;
-    font-weight: 700;
-  }
+const statusBadge = {
+  minWidth: 170,
+  background: '#eff6ff',
+  border: '1px solid #bfdbfe',
+  borderRadius: 20,
+  padding: 18,
+  textAlign: 'center',
+  color: '#1d4ed8',
+  fontSize: 38,
+  fontWeight: 1000,
+  display: 'grid',
+  alignContent: 'center'
+};
 
-  .hero-score {
-    border-radius: 24px;
-    padding: 22px;
-    color: white;
-  }
+const statusBadgeText = {
+  marginTop: 5,
+  color: '#1e40af',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .hero-score.success {
-    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  }
+const errorBox = {
+  background: '#fef2f2',
+  border: '1px solid #fecaca',
+  color: '#991b1b',
+  borderRadius: 18,
+  padding: 16,
+  fontWeight: 850
+};
 
-  .hero-score.warning {
-    background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-  }
+const metricsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+  gap: 14
+};
 
-  .hero-score.danger {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  }
+const metricCard = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 20,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .hero-score-label {
-    font-size: 13px;
-    font-weight: 800;
-    opacity: 0.9;
-  }
+const metricSuccess = {
+  ...metricCard,
+  background: '#f0fdf4',
+  border: '1px solid #bbf7d0'
+};
 
-  .hero-score-value {
-    font-size: 64px;
-    font-weight: 900;
-    line-height: 1;
-    margin-top: 10px;
-  }
+const metricWarning = {
+  ...metricCard,
+  background: '#fffbeb',
+  border: '1px solid #fde68a'
+};
 
-  .hero-score-subtitle {
-    margin-top: 10px;
-    font-size: 14px;
-    opacity: 0.9;
-    text-transform: uppercase;
-  }
+const metricLabel = {
+  color: '#64748b',
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase'
+};
 
-  .banner {
-    border-radius: 18px;
-    padding: 14px 16px;
-    font-size: 14px;
-    font-weight: 600;
-  }
+const metricValue = {
+  marginTop: 8,
+  color: '#0f172a',
+  fontSize: 28,
+  fontWeight: 1000
+};
 
-  .banner.warning {
-    background: #fff7ed;
-    color: #9a3412;
-    border: 1px solid #fdba74;
-  }
+const twoGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  gap: 14
+};
 
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 14px;
-  }
+const panel = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 22,
+  padding: 18,
+  boxShadow: '0 10px 26px rgba(15,23,42,0.05)'
+};
 
-  .metric-card {
-    padding: 18px;
-  }
+const sectionTitle = {
+  margin: '0 0 12px',
+  color: '#0f172a',
+  fontSize: 20
+};
 
-  .metric-card.success {
-    border: 1px solid #86efac;
-    background: #ecfdf5;
-  }
+const empty = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  color: '#64748b',
+  borderRadius: 14,
+  padding: 14,
+  fontWeight: 800
+};
 
-  .metric-card.warning {
-    border: 1px solid #fdba74;
-    background: #fff7ed;
-  }
+const insightList = {
+  display: 'grid',
+  gap: 10
+};
 
-  .metric-card.danger {
-    border: 1px solid #fecaca;
-    background: #fef2f2;
-  }
+const insightCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14
+};
 
-  .metric-label {
-    font-size: 12px;
-    font-weight: 800;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+const statusPill = {
+  display: 'inline-block',
+  background: '#dcfce7',
+  color: '#166534',
+  border: '1px solid #bbf7d0',
+  borderRadius: 999,
+  padding: '5px 8px',
+  fontSize: 11,
+  fontWeight: 1000,
+  marginBottom: 8
+};
 
-  .metric-value {
-    margin-top: 10px;
-    font-size: 28px;
-    font-weight: 900;
-    color: #0f172a;
-  }
+const insightTitle = {
+  color: '#0f172a',
+  fontWeight: 1000,
+  marginBottom: 5
+};
 
-  .two-col {
-    display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
-    gap: 18px;
-  }
+const insightText = {
+  color: '#475569',
+  fontWeight: 700,
+  lineHeight: 1.45
+};
 
-  .page-card {
-    padding: 20px;
-  }
+const noteBox = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 14,
+  color: '#334155',
+  fontWeight: 750,
+  lineHeight: 1.5,
+  marginBottom: 12
+};
 
-  .section-title {
-    font-size: 15px;
-    font-weight: 900;
-    color: #0f172a;
-    margin-bottom: 12px;
-  }
+const actionGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 10
+};
 
-  .trend-chart {
-    height: 240px;
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 12px;
-    align-items: end;
-  }
+const actionCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 12,
+  display: 'flex',
+  gap: 10,
+  alignItems: 'center',
+  color: '#334155',
+  fontWeight: 800
+};
 
-  .trend-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-  }
+const check = {
+  background: '#dcfce7',
+  color: '#166534',
+  border: '1px solid #bbf7d0',
+  borderRadius: 999,
+  width: 24,
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontWeight: 1000
+};
 
-  .trend-bar-wrap {
-    width: 100%;
-    height: 170px;
-    border-radius: 16px;
-    background: #f1f5f9;
-    display: flex;
-    align-items: end;
-    padding: 8px;
-    box-sizing: border-box;
-  }
+const trendGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+  gap: 12
+};
 
-  .trend-bar {
-    width: 100%;
-    border-radius: 12px;
-    background: linear-gradient(180deg, #06b6d4 0%, #0891b2 100%);
-  }
+const trendCard = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 12,
+  display: 'grid',
+  justifyItems: 'center',
+  gap: 7
+};
 
-  .trend-hours {
-    font-size: 12px;
-    font-weight: 800;
-    color: #0f172a;
-  }
+const trendDay = {
+  color: '#0f172a',
+  fontWeight: 1000
+};
 
-  .trend-day {
-    font-size: 12px;
-    color: #64748b;
-  }
+const barTrack = {
+  height: 110,
+  width: 18,
+  background: '#e2e8f0',
+  borderRadius: 999,
+  overflow: 'hidden',
+  display: 'flex',
+  alignItems: 'flex-end'
+};
 
-  .coaching-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
+const barFill = {
+  width: '100%',
+  background: '#0f766e',
+  borderRadius: 999
+};
 
-  .coach-item {
-    padding: 14px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-  }
+const trendValue = {
+  color: '#0f172a',
+  fontWeight: 1000
+};
 
-  .coach-item p {
-    margin: 8px 0 0;
-    color: #475569;
-    line-height: 1.6;
-  }
-
-  .signals-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .signal-item {
-    padding: 14px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-  }
-
-  .signal-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: center;
-  }
-
-  .signal-status {
-    font-size: 12px;
-    font-weight: 800;
-    color: #0f766e;
-    background: #ecfeff;
-    border: 1px solid #a5f3fc;
-    border-radius: 999px;
-    padding: 6px 10px;
-    text-transform: uppercase;
-  }
-
-  .signal-body {
-    margin-top: 8px;
-    color: #475569;
-    line-height: 1.6;
-  }
-
-  .signal-meta {
-    margin-top: 8px;
-    font-size: 12px;
-    color: #64748b;
-  }
-
-  .empty-text {
-    color: #64748b;
-  }
-
-  @media (max-width: 1280px) {
-    .metrics-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 980px) {
-    .hero-card,
-    .two-col {
-      grid-template-columns: 1fr;
-    }
-
-    .metrics-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 640px) {
-    .metrics-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .trend-chart {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      height: auto;
-    }
-  }
-`;
+const trendMeta = {
+  color: '#64748b',
+  fontSize: 12,
+  fontWeight: 800
+};
