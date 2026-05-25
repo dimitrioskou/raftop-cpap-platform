@@ -44,13 +44,22 @@ function resolveDb() {
 const db = resolveDb();
 
 function resolveJwtSecret() {
-  return (
+  const secret =
     process.env.JWT_SECRET ||
     process.env.JWT_KEY ||
     process.env.ACCESS_TOKEN_SECRET ||
     process.env.TOKEN_SECRET ||
-    'raftop-dev-secret'
-  );
+    null;
+
+  if (secret && String(secret).trim().length >= 24) {
+    return String(secret).trim();
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required and must be at least 24 characters in production.');
+  }
+
+  return 'local-development-jwt-secret-change-before-production';
 }
 
 function isLocalRequest(req) {

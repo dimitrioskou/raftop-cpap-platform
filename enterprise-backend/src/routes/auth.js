@@ -1,7 +1,9 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-
+const {
+  writeFailedLoginFromRequest
+} = require('../services/failedLoginAuditService');
 const router = express.Router();
 
 function resolveDb() {
@@ -54,13 +56,22 @@ function normalizeRole(value) {
 }
 
 function resolveJwtSecret() {
-  return (
+  const secret =
     process.env.JWT_SECRET ||
     process.env.JWT_KEY ||
     process.env.ACCESS_TOKEN_SECRET ||
     process.env.TOKEN_SECRET ||
-    'raftop-dev-secret'
-  );
+    null;
+
+  if (secret && String(secret).trim().length >= 24) {
+    return String(secret).trim();
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required and must be at least 24 characters in production.');
+  }
+
+  return 'local-development-jwt-secret-change-before-production';
 }
 
 function isDevAuthAllowed() {
@@ -266,6 +277,15 @@ router.post('/login', async (req, res) => {
     const password = String(req.body?.password || '');
 
     if (!email || !password) {
+      await writeFailedLoginFromRequest(req, {
+        reason: 'MISSING_CREDENTIALS',
+        statusCode: 400,
+        metadata: {
+          hasEmail: Boolean(email),
+          hasPassword: Boolean(password)
+        }
+      });
+
       return res.status(400).json({
         ok: false,
         message: 'Email and password are required.'
@@ -278,6 +298,15 @@ router.post('/login', async (req, res) => {
       const passwordOk = await verifyPassword(userRow, password);
 
       if (!passwordOk) {
+        await writeFailedLoginFromRequest(req, {
+          reason: 'INVALID_PASSWORD',
+          statusCode: 401,
+          metadata: {
+            email,
+            userFound: true
+          }
+        });
+
         return res.status(401).json({
           ok: false,
           message: 'Invalid credentials.'
@@ -309,11 +338,29 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    await writeFailedLoginFromRequest(req, {
+      reason: 'UNKNOWN_EMAIL_OR_INVALID_DEV_CREDENTIALS',
+      statusCode: 401,
+      metadata: {
+        email,
+        userFound: false,
+        devAuthAllowed: isDevAuthAllowed()
+      }
+    });
+
     return res.status(401).json({
       ok: false,
       message: 'Invalid credentials.'
     });
   } catch (error) {
+    await writeFailedLoginFromRequest(req, {
+      reason: 'LOGIN_EXCEPTION',
+      statusCode: 500,
+      metadata: {
+        error: error.message || 'Login failed.'
+      }
+    });
+
     return res.status(500).json({
       ok: false,
       message: error.message || 'Login failed.'

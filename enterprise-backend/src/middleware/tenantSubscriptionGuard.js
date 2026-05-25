@@ -24,10 +24,51 @@ function isBypassEnabled(req) {
   return false;
 }
 
+function getPath(req) {
+  return String(req.originalUrl || req.url || '').split('?')[0];
+}
+
 function isPublicTenantSubscriptionPath(req) {
-  const path = String(req.originalUrl || req.url || '');
+  const path = getPath(req);
 
   return path.startsWith('/api/tenant/subscription');
+}
+
+function isTenantContextPath(req) {
+  const path = getPath(req);
+
+  return path === '/api/tenant/context';
+}
+
+function isSubscriptionAllowed(access) {
+  if (!access) return false;
+
+  if (access.allowed === false) return false;
+  if (access.isAllowed === false) return false;
+
+  if (access.allowed === true) return true;
+  if (access.isAllowed === true) return true;
+
+  return false;
+}
+
+function getAccessState(access) {
+  return (
+    access?.accessState ||
+    access?.state ||
+    'UNKNOWN'
+  );
+}
+
+function getTenantIdFromPayload(payload, req) {
+  return (
+    payload?.tenantId ||
+    payload?.tenant_id ||
+    req.headers['x-tenant-id'] ||
+    req.query.tenantId ||
+    req.query.tenant_id ||
+    'unknown'
+  );
 }
 
 async function tenantSubscriptionGuard(req, res, next) {
@@ -40,14 +81,24 @@ async function tenantSubscriptionGuard(req, res, next) {
       return next();
     }
 
+    if (isTenantContextPath(req)) {
+      return next();
+    }
+
     if (isBypassEnabled(req)) {
       return next();
     }
 
     const payload = await getTenantSubscriptionStatus(req);
-    const access = payload.subscription?.access;
+    const subscription = payload.subscription || {};
+    const access = subscription.access || payload.access || {};
+    const limits = subscription.limits || payload.limits || {};
+    const modules = subscription.modules || payload.modules || {};
+    const entitlements = subscription.entitlements || payload.entitlements || {};
 
-    if (!access?.isAllowed) {
+    const allowed = isSubscriptionAllowed(access);
+
+    if (!allowed) {
       let guardEvent = null;
 
       try {
@@ -65,14 +116,30 @@ async function tenantSubscriptionGuard(req, res, next) {
         fallback: false,
         error: 'SUBSCRIPTION_REQUIRED',
         message: access?.reason || 'Tenant subscription does not allow access.',
-        phase: '22.5-subscription-guard-event-logging',
-        tenantId: payload.tenantId,
-        subscription: payload.subscription,
+        phase: '35B.4-saas-subscription-guard-hardening',
+        tenantId: getTenantIdFromPayload(payload, req),
+        accessState: getAccessState(access),
+        subscription,
+        limits,
+        modules,
+        entitlements,
         guardEvent
       });
     }
 
-    req.subscription = payload.subscription;
+    req.subscription = subscription;
+    req.subscriptionAccess = access;
+    req.subscriptionLimits = limits;
+    req.subscriptionModules = modules;
+    req.subscriptionEntitlements = entitlements;
+    req.saas = {
+      tenantId: getTenantIdFromPayload(payload, req),
+      subscription,
+      access,
+      limits,
+      modules,
+      entitlements
+    };
 
     return next();
   } catch (error) {
@@ -82,7 +149,8 @@ async function tenantSubscriptionGuard(req, res, next) {
       ok: false,
       fallback: false,
       error: 'SUBSCRIPTION_GUARD_FAILED',
-      message: error.message
+      message: error.message,
+      phase: '35B.4-saas-subscription-guard-hardening'
     });
   }
 }
