@@ -1,10 +1,11 @@
 // enterprise-backend/src/server.js
-
+const helmet = require('helmet');
 const express = require('express');
 const cors = require('cors');
 
 const { buildCorsOptions } = require('./middleware/corsOptions');
 const { applySecurityHeaders } = require('./middleware/securityHeaders');
+const { productionAuthEnforcement } = require('./productionAuthEnforcement');
 
 const authRoutes = require('./routes/auth');
 
@@ -17,6 +18,7 @@ const superAdminModulesRoutes = require('./routes/superAdmin/modules');
 const superAdminSubscriptionsRoutes = require('./routes/superAdmin/subscriptions');
 const superAdminAuditLogsRoutes = require('./routes/superAdmin/auditLogs');
 const superAdminTenantProfilesRoutes = require('./routes/superAdmin/tenantProfiles');
+const superAdminTenantProvisioningRoutes = require('./routes/superAdmin/tenantProvisioning');
 
 // System / audit routes
 const routeStabilityAuditRoutes = require('./routes/system/routeStabilityAudit');
@@ -35,13 +37,19 @@ const systemMaintenanceRoutes = require('./routes/system/systemMaintenance');
 // Tenant routes
 const tenantSubscriptionRoutes = require('./routes/tenant/subscription');
 const tenantProfileRoutes = require('./routes/tenant/profile');
-
+const tenantAclAuditRoutes = require('./routes/tenant/aclAudit');
+const tenantSecurityOverviewRoutes = require('./routes/tenant/securityOverview');
+const tenantUserActivityAuditRoutes = require('./routes/tenant/userActivityAudit');
 const tenantDashboardRoutes = require('./routes/tenant/dashboard');
 const tenantExecutiveMetricsRoutes = require('./routes/tenant/executiveMetrics');
 const tenantPatientsRoutes = require('./routes/tenant/patients');
 const tenantDevicesRoutes = require('./routes/tenant/devices');
 const tenantPatientSignalsRoutes = require('./routes/tenant/patientSignals');
-
+const patientAccessGuard = require('./middleware/patientAccessGuard');
+const tenantFailedLoginAuditRoutes = require('./routes/tenant/failedLoginAudit');
+const patientTherapyRoutes = require('./routes/patient/therapy');
+const patientNightlyAnalysisRoutes = require('./routes/patient/nightlyAnalysis');
+const patientNightCompareRoutes = require('./routes/patient/nightCompare');
 const tenantUnifiedTasksRoutes = require('./routes/tenant/unifiedTasks');
 const tenantTasksRoutes = require('./routes/tenant/tasks');
 
@@ -65,18 +73,36 @@ const tenantBillingRoutes = require('./routes/tenant/billing');
 const tenantModulesRoutes = require('./routes/tenant/modules');
 const tenantIntegrationsRoutes = require('./routes/tenant/integrations');
 const tenantBrandingRoutes = require('./routes/tenant/branding');
+const tenantContextRoutes = require('./routes/tenant/context');
 
 // Middleware
 const superAdminGuard = require('./middleware/superAdminGuard');
 const tenantSubscriptionGuard = require('./middleware/tenantSubscriptionGuard');
 const tenantPlanLimitGuard = require('./middleware/tenantPlanLimitGuard');
 const requireTenantContext = require('./middleware/requireTenantContext');
-
+const userActivityAuditMiddleware = require('./middleware/userActivityAuditMiddleware');
+const tenantModuleEntitlementGuard = require('./middleware/tenantModuleEntitlementGuard');
+const { runtimeAclMiddleware } = require('./middleware/runtimeAclMiddleware');
 const { startSystemMonitoringLoop } = require('./services/systemMonitoringRunner');
 const { startSystemMaintenanceLoop } = require('./services/systemMaintenanceRunner');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    hsts:
+      process.env.NODE_ENV === 'production'
+        ? {
+            maxAge: 31536000,
+            includeSubDomains: true,
+            preload: true
+          }
+        : false
+  })
+);
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -99,11 +125,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Public auth
+// Public auth.
+// Login must remain public, otherwise production login will break.
 app.use('/api/auth', authRoutes);
 
+// Phase 41.11B production backend authorization enforcement.
+// This must stay after /api/health and /api/auth,
+// but before /api/system, /api/super-admin, /api/tenant and /api/patient routes.
+app.use(productionAuthEnforcement);
+
 // System routes.
-// These stay before /api/super-admin guard and before /api/tenant guard.
+// In strict production auth mode, protected /api/system routes are blocked
+// by productionAuthEnforcement unless a valid JWT or super-admin key is present.
 app.use('/api/system/route-stability-audit', routeStabilityAuditRoutes);
 app.use('/api/system/saas-stability-audit', saasStabilityAuditRoutes);
 app.use('/api/system/production-readiness-audit', productionReadinessAuditRoutes);
@@ -128,15 +161,20 @@ app.use('/api/super-admin/modules', superAdminModulesRoutes);
 app.use('/api/super-admin/subscriptions', superAdminSubscriptionsRoutes);
 app.use('/api/super-admin/audit-logs', superAdminAuditLogsRoutes);
 app.use('/api/super-admin/tenant-profiles', superAdminTenantProfilesRoutes);
+app.use('/api/super-admin/tenant-provisioning', superAdminTenantProvisioningRoutes);
 
-// Tenant subscription route remains public enough for subscription status / gate checks.
+// Tenant subscription route.
+// In strict production auth mode, this is no longer public through direct API access.
+// Frontend must use authenticated access after login.
 app.use('/api/tenant/subscription', tenantSubscriptionRoutes);
 
 // Tenant hardening.
 // Every sensitive /api/tenant route below this line requires explicit tenant context.
 app.use('/api/tenant', requireTenantContext);
+app.use('/api/tenant', userActivityAuditMiddleware);
 app.use('/api/tenant', tenantSubscriptionGuard);
 app.use('/api/tenant', tenantPlanLimitGuard);
+app.use('/api/tenant', tenantModuleEntitlementGuard);
 
 app.use('/api/tenant/profile', tenantProfileRoutes);
 
@@ -146,16 +184,38 @@ app.use('/api/tenant/patients', tenantPatientsRoutes);
 app.use('/api/tenant/devices', tenantDevicesRoutes);
 app.use('/api/tenant/patient-signals', tenantPatientSignalsRoutes);
 
+app.use('/api/patient', userActivityAuditMiddleware);
+app.use('/api/patient', patientAccessGuard);
+
+app.use('/api/tenant/security/failed-logins', tenantFailedLoginAuditRoutes);
+app.use('/api/patient/therapy', patientTherapyRoutes);
+app.use('/api/patient/nightly-analysis', patientNightlyAnalysisRoutes);
+app.use('/api/patient/night-compare', patientNightCompareRoutes);
+
 app.use('/api/tenant/tasks-unified', tenantUnifiedTasksRoutes);
 app.use('/api/tenant/tasks', tenantTasksRoutes);
 
+app.use('/api/tenant/security/acl-audit', tenantAclAuditRoutes);
+app.use('/api/tenant/security/overview', tenantSecurityOverviewRoutes);
+app.use('/api/tenant/security/user-activity', tenantUserActivityAuditRoutes);
+
+app.use('/api/tenant/atlas', runtimeAclMiddleware);
 app.use('/api/tenant/atlas/action-center', atlasActionCenterForceRoute);
 app.use('/api/tenant/atlas', tenantAtlasRoutes);
 
+app.use('/api/tenant/closed-loop', runtimeAclMiddleware);
 app.use('/api/tenant/closed-loop', closedLoopControlSummaryRoutes);
+
+app.use('/api/tenant/closed-loop-verification', runtimeAclMiddleware);
 app.use('/api/tenant/closed-loop-verification', tenantClosedLoopVerificationRoutes);
+
+app.use('/api/tenant/closed-loop-remediation', runtimeAclMiddleware);
 app.use('/api/tenant/closed-loop-remediation', tenantClosedLoopRemediationRoutes);
+
+app.use('/api/tenant/closed-loop-resolution', runtimeAclMiddleware);
 app.use('/api/tenant/closed-loop-resolution', tenantClosedLoopResolutionRoutes);
+
+app.use('/api/tenant/closed-loop-control', runtimeAclMiddleware);
 app.use('/api/tenant/closed-loop-control', tenantClosedLoopControlRoutes);
 
 app.use('/api/tenant/notes', tenantNotesRoutes);
@@ -169,6 +229,7 @@ app.use('/api/tenant/billing', tenantBillingRoutes);
 app.use('/api/tenant/modules', tenantModulesRoutes);
 app.use('/api/tenant/integrations', tenantIntegrationsRoutes);
 app.use('/api/tenant/branding', tenantBrandingRoutes);
+app.use('/api/tenant/context', tenantContextRoutes);
 
 // Final 404 handler
 app.use((req, res) => {
