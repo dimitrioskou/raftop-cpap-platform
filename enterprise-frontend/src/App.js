@@ -30,6 +30,7 @@ import RaftopoulosExecutiveLeaveBehindPage from './pages/RaftopoulosExecutiveLea
 import RaftopoulosExecutiveDemoScriptPage from './pages/RaftopoulosExecutiveDemoScriptPage';
 import RaftopoulosPilotWalkthroughScenarioPage from './pages/RaftopoulosPilotWalkthroughScenarioPage';
 import RaftopoulosExecutiveDemoHomePage from './pages/RaftopoulosExecutiveDemoHomePage';
+import RaftopoulosQualityProfitExcellencePage from './pages/RaftopoulosQualityProfitExcellencePage';
 import PilotDemoDashboardPage from "./pages/PilotDemoDashboardPage";
 import PreSaleChecklistPage from './pages/PreSaleChecklistPage';
 import ClientDemoStartPage from './pages/ClientDemoStartPage';
@@ -410,6 +411,10 @@ function NavigationLinks() {
         <Link to="/sales/raftopoulos/executive-demo-script" style={executiveDemoScriptLink}>
           Executive Demo Script
         </Link>
+
+<Link to="/sales/raftopoulos/quality-profit" style={businessLink}>
+  Quality & Profit
+</Link>
 
         <Link to="/sales/raftopoulos/pilot-walkthrough-scenario" style={pilotWalkthroughLink}>
           Pilot Walkthrough
@@ -1165,7 +1170,8 @@ function AppRoutes() {
       <Route path="/tenant/modules" element={<GenericEndpointPage title="Modules" subtitle="Modules." endpoint="/api/tenant/modules" />} />
       <Route path="/tenant/integrations" element={<GenericEndpointPage title="Integrations" subtitle="Integrations." endpoint="/api/tenant/integrations" />} />
       <Route path="/tenant/branding" element={<GenericEndpointPage title="Branding" subtitle="Tenant branding configuration." endpoint="/api/tenant/branding" />} />
-<Route path="/sales/raftopoulos/executive-demo-home" element={<RaftopoulosExecutiveDemoHomePage />} />
+     <Route path="/sales/raftopoulos/executive-demo-home" element={<RaftopoulosExecutiveDemoHomePage />} />
+    <Route path="/sales/raftopoulos/quality-profit" element={<RaftopoulosQualityProfitExcellencePage />} />
       <Route path="/sales/raftopoulos/executive-demo-script" element={<RaftopoulosExecutiveDemoScriptPage />} />
       <Route path="/sales/raftopoulos/pilot-walkthrough-scenario" element={<RaftopoulosPilotWalkthroughScenarioPage />} />
       <Route path="/sales/raftopoulos/pilot-walkthrough" element={<Navigate to="/sales/raftopoulos/pilot-walkthrough-scenario" replace />} />
