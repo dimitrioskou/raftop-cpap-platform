@@ -55,6 +55,20 @@ const API_BASE =
   process.env.REACT_APP_BACKEND_URL ||
   'http://localhost:5001';
 
+function getFrontendAuthToken() {
+  try {
+    return (
+      localStorage.getItem('raftop_auth_token') ||
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token') ||
+      localStorage.getItem('access_token') ||
+      ''
+    );
+  } catch (error) {
+    return '';
+  }
+}
+
 function getTenantId() {
   return (
     localStorage.getItem('tenant_id') ||
@@ -1192,6 +1206,22 @@ function AppRoutes() {
 }
 
 function AppShell() {
+  const location = useLocation();
+  const token = getFrontendAuthToken();
+  const pathname = location?.pathname || '/';
+  const search = location?.search || '';
+  const isLoginPath = pathname === '/login' || pathname.startsWith('/login/');
+
+  if (!token && !isLoginPath) {
+    try {
+      localStorage.setItem('raftop_redirect_after_login', pathname + search);
+    } catch (error) {
+      // Ignore localStorage write errors.
+    }
+
+    return <Navigate to="/login" replace />;
+  }
+
   return (
     <TenantRuntimeProvider>
       <div style={appShell}>
@@ -1735,4 +1765,5 @@ const miniPre = {
   maxHeight: 220,
   fontSize: 11
 };
+
 
