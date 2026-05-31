@@ -49,6 +49,10 @@ import TenantStatisticsPage from './pages/TenantStatisticsPage';
 import TenantExecutiveStatisticsReportPage from './pages/TenantExecutiveStatisticsReportPage';
 import TenantBusinessImpactPage from './pages/TenantBusinessImpactPage';
 import SuperAdminTenantProvisioningPage from './pages/SuperAdminTenantProvisioningPage';
+import BuyerSettingsPage from "./pages/BuyerSettingsPage";
+import BuyerCompliancePage from "./pages/BuyerCompliancePage";
+import BuyerReportsPage from "./pages/BuyerReportsPage";
+import BuyerDoctorClinicPage from "./pages/BuyerDoctorClinicPage";
 
 const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
@@ -1202,6 +1206,12 @@ function AppRoutes() {
   GenericEndpointPage
 })}
 
+          <Route path="/settings" element={<BuyerSettingsPage />} />
+          <Route path="/compliance" element={<BuyerCompliancePage />} />
+          <Route path="/reports" element={<BuyerReportsPage />} />
+          <Route path="/doctor" element={<BuyerDoctorClinicPage />} />
+          <Route path="/clinic" element={<BuyerDoctorClinicPage />} />
+
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
@@ -1767,6 +1777,7 @@ const miniPre = {
   maxHeight: 220,
   fontSize: 11
 };
+
 
 
 
