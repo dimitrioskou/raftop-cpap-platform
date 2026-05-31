@@ -10,6 +10,7 @@ import {
 } from 'react-router-dom';
 
 import CommercialDemoBanner from './components/CommercialDemoBanner';
+import LoginPage from './pages/LoginPage';
 import TenantBrandBanner from './components/TenantBrandBanner';
 import { TenantRuntimeProvider } from './context/TenantRuntimeContext';
 import ExecutiveKpiRibbon from './components/ExecutiveKpiRibbon';
@@ -1157,6 +1158,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/sales/raftopoulos/executive-demo-home" replace />} />
+      <Route path="/login" element={<LoginPage />} />
 
       {DemoRoutes()}
 
@@ -1765,5 +1767,6 @@ const miniPre = {
   maxHeight: 220,
   fontSize: 11
 };
+
 
 

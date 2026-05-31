@@ -1,338 +1,354 @@
-import React, { useMemo, useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+﻿import React, { useState } from "react";
 
-const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+// Robust production login page
+// tenantId payload plus x-tenant-id
+// tenant_id payload plus x-tenant-id
+// x-tenant-id only
+// raftop_auth_token
+// raftop_redirect_after_login
+// commercial_demo_mode
 
-function apiUrl(path) {
-  return API_BASE ? `${API_BASE}${path}` : path;
+const BACKEND_URL =
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  process.env.REACT_APP_API_BASE_URL ||
+  "https://raftop-cpap-backend.onrender.com";
+
+function extractToken(payload) {
+  return (
+    payload?.token ||
+    payload?.accessToken ||
+    payload?.access_token ||
+    payload?.jwt ||
+    payload?.authToken ||
+    payload?.data?.token ||
+    payload?.data?.accessToken ||
+    payload?.data?.access_token ||
+    ""
+  );
 }
 
-function inputStyle() {
-  return {
-    width: '100%',
-    border: '1px solid #d0d5dd',
-    borderRadius: 14,
-    padding: '14px 16px',
-    outline: 'none',
-    fontSize: 14,
-    boxSizing: 'border-box'
-  };
+function extractUser(payload) {
+  return payload?.user || payload?.data?.user || null;
 }
 
-function buttonStyle(disabled, tone = 'blue') {
-  const gradients = {
-    blue: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
-    teal: 'linear-gradient(135deg, #0891b2 0%, #155e75 100%)',
-    neutral: '#ffffff'
-  };
-
-  return {
-    width: '100%',
-    border: tone === 'neutral' ? '1px solid #d0d5dd' : '1px solid transparent',
-    borderRadius: 14,
-    padding: '14px 16px',
-    background: gradients[tone],
-    color: tone === 'neutral' ? '#344054' : '#fff',
-    fontWeight: 900,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    boxShadow:
-      tone === 'neutral'
-        ? '0 2px 8px rgba(16,24,40,0.06)'
-        : '0 10px 20px rgba(37,99,235,0.20)',
-    opacity: disabled ? 0.7 : 1
-  };
-}
-
-const DEMO_USERS = [
-  {
-    label: 'Tenant Admin',
-    email: 'admin@raftop.local',
-    password: 'admin123!'
-  }
-];
-
-async function readJsonSafely(response) {
-  const text = await response.text();
-
-  if (!text) return {};
-
+function getRedirectTarget() {
   try {
-    return JSON.parse(text);
-  } catch (_error) {
-    return {};
+    return (
+      localStorage.getItem("raftop_redirect_after_login") ||
+      "/sales/raftopoulos/quality-profit"
+    );
+  } catch (error) {
+    return "/sales/raftopoulos/quality-profit";
   }
 }
 
-function getDefaultRedirectForUser(user, fallbackPath) {
-  const role = String(user?.role || '').toLowerCase();
+function storeLoginSession({ token, user, tenantId }) {
+  localStorage.setItem("raftop_auth_token", token);
+  localStorage.setItem("token", token);
+  localStorage.setItem("access_token", token);
+  localStorage.setItem("auth_token", token);
 
-  if (fallbackPath && fallbackPath !== '/login') {
-    return fallbackPath;
+  localStorage.setItem("tenant_id", tenantId);
+  localStorage.setItem("tenantId", tenantId);
+  localStorage.setItem("commercial_demo_mode", "true");
+
+  if (user) {
+    localStorage.setItem("raftop_auth_user", JSON.stringify(user));
+    localStorage.setItem("user", JSON.stringify(user));
   }
 
-  if (role === 'patient') {
-    return '/patient/dashboard';
+  localStorage.removeItem("raftop_redirect_after_login");
+}
+
+async function attemptLogin({ email, password, tenantId }) {
+  const attempts = [
+    {
+      name: "tenantId payload plus x-tenant-id",
+      headers: { "x-tenant-id": tenantId },
+      body: { email, password, tenantId }
+    },
+    {
+      name: "tenant_id payload plus x-tenant-id",
+      headers: { "x-tenant-id": tenantId },
+      body: { email, password, tenant_id: tenantId }
+    },
+    {
+      name: "x-tenant-id only",
+      headers: { "x-tenant-id": tenantId },
+      body: { email, password }
+    },
+    {
+      name: "no tenant header tenantId payload",
+      headers: {},
+      body: { email, password, tenantId }
+    },
+    {
+      name: "no tenant header tenant_id payload",
+      headers: {},
+      body: { email, password, tenant_id: tenantId }
+    }
+  ];
+
+  let lastError = "Login failed.";
+
+  for (const attempt of attempts) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...attempt.headers
+        },
+        body: JSON.stringify(attempt.body)
+      });
+
+      const text = await response.text();
+      let payload = null;
+
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch (error) {
+        payload = null;
+      }
+
+      const token = extractToken(payload);
+
+      if (response.ok && token) {
+        return {
+          ok: true,
+          mode: attempt.name,
+          token,
+          user: extractUser(payload),
+          payload
+        };
+      }
+
+      lastError =
+        payload?.error ||
+        payload?.message ||
+        `Backend returned status ${response.status}`;
+    } catch (error) {
+      lastError = error?.message || "Network login error.";
+    }
   }
 
-  return '/tenant/dashboard';
+  return {
+    ok: false,
+    error: lastError
+  };
 }
 
 export default function LoginPage() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const {
-    login,
-    loginWithPayload,
-    loading,
-    isAuthenticated,
-    bootstrapping,
-    user
-  } = useAuth();
+  const [email, setEmail] = useState("dimitrisgelly@gmail.com");
+  const [tenantId, setTenantId] = useState("raftopoulos-live");
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState("");
 
-  const [email, setEmail] = useState('admin@raftop.local');
-  const [password, setPassword] = useState('admin123!');
-  const [error, setError] = useState('');
-  const [patientLoading, setPatientLoading] = useState(false);
-
-  const redirectTo = useMemo(() => {
-    return location.state?.from || '';
-  }, [location.state]);
-
-  if (bootstrapping) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'grid',
-          placeItems: 'center',
-          padding: 20,
-          background:
-            'radial-gradient(circle at top left, rgba(29,78,216,0.10) 0%, transparent 18%), radial-gradient(circle at top right, rgba(124,58,237,0.10) 0%, transparent 16%), linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%)'
-        }}
-      >
-        <div
-          style={{
-            background: '#fff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 24,
-            padding: 28,
-            boxShadow: '0 18px 34px rgba(0,0,0,0.10)',
-            fontWeight: 800,
-            color: '#101828'
-          }}
-        >
-          Restoring session...
-        </div>
-      </div>
-    );
-  }
-
-  if (isAuthenticated && user) {
-    return <Navigate to={getDefaultRedirectForUser(user, redirectTo)} replace />;
-  }
-
-  const handleSubmit = async (event) => {
+  async function handleSubmit(event) {
     event.preventDefault();
-    setError('');
 
-    try {
-      const result = await login(email, password);
+    setStatus("loading");
+    setError("");
 
-      if (result?.ok && result?.user) {
-        navigate(getDefaultRedirectForUser(result.user, redirectTo), { replace: true });
-        return;
-      }
+    const cleanEmail = String(email || "").trim();
+    const cleanTenant = String(tenantId || "raftopoulos-live").trim();
+    const cleanPassword = String(password || "");
 
-      setError('Login failed');
-    } catch (err) {
-      setError(err?.message || 'Login failed');
+    if (!cleanEmail || !cleanPassword || !cleanTenant) {
+      setStatus("error");
+      setError("Συμπλήρωσε email, tenant και password.");
+      return;
     }
-  };
 
-  const handleFillDemo = (demoUser) => {
-    setEmail(demoUser.email);
-    setPassword(demoUser.password);
-    setError('');
-  };
+    const result = await attemptLogin({
+      email: cleanEmail,
+      password: cleanPassword,
+      tenantId: cleanTenant
+    });
 
-  const handlePatientDemoLogin = async () => {
-    setPatientLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(apiUrl('/api/auth/dev-patient-login'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json'
-        },
-        credentials: 'include'
-      });
-
-      const payload = await readJsonSafely(response);
-
-      if (!response.ok || !payload?.ok || !payload?.token || !payload?.user) {
-        throw new Error(payload?.message || 'Dev patient login failed');
-      }
-
-      const result = await loginWithPayload(payload);
-
-      navigate(getDefaultRedirectForUser(result.user, redirectTo), { replace: true });
-    } catch (err) {
-      setError(err?.message || 'Dev patient login failed');
-    } finally {
-      setPatientLoading(false);
+    if (!result.ok) {
+      setStatus("error");
+      setError(result.error || "Login failed.");
+      return;
     }
-  };
+
+    storeLoginSession({
+      token: result.token,
+      user: result.user,
+      tenantId: cleanTenant
+    });
+
+    setStatus("success");
+
+    const target = getRedirectTarget();
+    window.location.href = target;
+  }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'grid',
-        placeItems: 'center',
-        padding: 20,
-        background:
-          'radial-gradient(circle at top left, rgba(29,78,216,0.10) 0%, transparent 18%), radial-gradient(circle at top right, rgba(124,58,237,0.10) 0%, transparent 16%), linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%)'
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 520,
-          background: '#fff',
-          border: '1px solid #e5e7eb',
-          borderRadius: 24,
-          padding: 28,
-          boxShadow: '0 18px 34px rgba(0,0,0,0.10)'
-        }}
-      >
-        <div style={{ fontSize: 12, fontWeight: 900, color: '#1d4ed8', letterSpacing: 0.6 }}>
-          RAFTOP ENTERPRISE
-        </div>
+    <div style={styles.page}>
+      <div style={styles.card}>
+        <div style={styles.kicker}>RAFTOP CPAP CARE Pro</div>
+        <h1 style={styles.title}>Secure Login</h1>
+        <p style={styles.subtitle}>
+          Σύνδεση στο production demo περιβάλλον της Raftopoulos. Το login
+          δοκιμάζει όλα τα backend-compatible payloads και αποθηκεύει σωστά
+          token και tenant context.
+        </p>
 
-        <h1 style={{ margin: '8px 0 6px', fontSize: 30, fontWeight: 900, color: '#101828' }}>
-          Sign in
-        </h1>
-
-        <div style={{ color: '#667085', marginBottom: 18 }}>
-          Provider and patient access inside the same ecosystem.
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>Email</div>
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <label style={styles.label}>
+            Email
             <input
+              style={styles.input}
               type="email"
+              autoComplete="username"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              style={inputStyle()}
-              placeholder="admin@raftop.local"
-              autoComplete="username"
             />
-          </div>
+          </label>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>Password</div>
+          <label style={styles.label}>
+            Tenant
             <input
+              style={styles.input}
+              value={tenantId}
+              onChange={(event) => setTenantId(event.target.value)}
+            />
+          </label>
+
+          <label style={styles.label}>
+            Password
+            <input
+              style={styles.input}
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              style={inputStyle()}
-              placeholder="Enter password"
-              autoComplete="current-password"
             />
-          </div>
+          </label>
 
-          {error ? (
-            <div
-              style={{
-                marginBottom: 14,
-                padding: '10px 12px',
-                borderRadius: 12,
-                background: '#fff1f2',
-                border: '1px solid #fda4af',
-                color: '#b42318',
-                fontSize: 14,
-                fontWeight: 700
-              }}
-            >
-              {error}
-            </div>
+          {error ? <div style={styles.error}>{error}</div> : null}
+
+          {status === "success" ? (
+            <div style={styles.success}>Login successful. Redirecting...</div>
           ) : null}
 
-          <button
-            type="submit"
-            disabled={loading || patientLoading}
-            style={buttonStyle(loading || patientLoading)}
-          >
-            {loading ? 'Signing in...' : 'Sign in'}
+          <button style={styles.button} type="submit" disabled={status === "loading"}>
+            {status === "loading" ? "Signing in..." : "Login"}
           </button>
         </form>
 
-        <div style={{ marginTop: 12 }}>
-          <button
-            type="button"
-            disabled={loading || patientLoading}
-            onClick={handlePatientDemoLogin}
-            style={buttonStyle(loading || patientLoading, 'teal')}
-          >
-            {patientLoading ? 'Opening patient workspace...' : 'Continue as Patient Demo'}
-          </button>
-        </div>
-
-        <div
-          style={{
-            marginTop: 18,
-            padding: 14,
-            borderRadius: 14,
-            background: '#f8fafc',
-            border: '1px solid #e5e7eb',
-            color: '#475467',
-            fontSize: 13,
-            lineHeight: 1.7
-          }}
-        >
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Demo accounts</div>
-
-          {DEMO_USERS.map((demoUser) => (
-            <div
-              key={demoUser.email}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                padding: '8px 0',
-                borderTop: '1px solid #eaecf0'
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 700, color: '#101828' }}>{demoUser.label}</div>
-                <div>{demoUser.email}</div>
-                <div>{demoUser.password}</div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleFillDemo(demoUser)}
-                style={{
-                  border: '1px solid #d0d5dd',
-                  background: '#fff',
-                  borderRadius: 10,
-                  padding: '8px 10px',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                Use
-              </button>
-            </div>
-          ))}
+        <div style={styles.footer}>
+          Backend: <strong>{BACKEND_URL}</strong>
         </div>
       </div>
     </div>
   );
 }
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    boxSizing: "border-box",
+    padding: "34px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "Inter, Arial, sans-serif",
+    background:
+      "radial-gradient(circle at top left, rgba(20,184,166,0.22), transparent 34%), linear-gradient(135deg, #07111f 0%, #0f172a 58%, #0f766e 140%)"
+  },
+  card: {
+    width: "100%",
+    maxWidth: "520px",
+    background: "rgba(255,255,255,0.97)",
+    color: "#0f172a",
+    borderRadius: "30px",
+    padding: "34px",
+    boxShadow: "0 28px 90px rgba(0,0,0,0.28)"
+  },
+  kicker: {
+    color: "#0f766e",
+    textTransform: "uppercase",
+    fontSize: "12px",
+    fontWeight: 950,
+    letterSpacing: "0.16em"
+  },
+  title: {
+    margin: "10px 0 10px",
+    fontSize: "36px",
+    lineHeight: 1.04,
+    fontWeight: 950,
+    letterSpacing: "-0.04em"
+  },
+  subtitle: {
+    margin: 0,
+    color: "#475569",
+    fontSize: "14px",
+    lineHeight: 1.55,
+    fontWeight: 750
+  },
+  form: {
+    display: "grid",
+    gap: "14px",
+    marginTop: "24px"
+  },
+  label: {
+    display: "grid",
+    gap: "7px",
+    color: "#334155",
+    fontSize: "12px",
+    fontWeight: 950,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em"
+  },
+  input: {
+    height: "50px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "16px",
+    padding: "0 14px",
+    color: "#0f172a",
+    background: "#ffffff",
+    fontSize: "15px",
+    fontWeight: 800,
+    outline: "none",
+    boxSizing: "border-box"
+  },
+  button: {
+    height: "52px",
+    border: 0,
+    borderRadius: "16px",
+    background: "#0f766e",
+    color: "#ffffff",
+    fontSize: "15px",
+    fontWeight: 950,
+    cursor: "pointer"
+  },
+  error: {
+    background: "#fee2e2",
+    border: "1px solid #fecaca",
+    color: "#991b1b",
+    borderRadius: "14px",
+    padding: "12px",
+    fontSize: "13px",
+    fontWeight: 850
+  },
+  success: {
+    background: "#dcfce7",
+    border: "1px solid #bbf7d0",
+    color: "#166534",
+    borderRadius: "14px",
+    padding: "12px",
+    fontSize: "13px",
+    fontWeight: 850
+  },
+  footer: {
+    marginTop: "18px",
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: 800,
+    wordBreak: "break-word"
+  }
+};
