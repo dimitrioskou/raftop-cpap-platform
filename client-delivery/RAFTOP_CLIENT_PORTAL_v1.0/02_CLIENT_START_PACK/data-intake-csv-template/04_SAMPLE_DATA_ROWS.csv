@@ -1,0 +1,6 @@
+﻿patient_reference_code,device_reference_code,date,usage_hours,no_data_status,leak_metric,ahi_metric,follow_up_status,assigned_owner,notes
+P-0001,D-1001,2026-06-01,6.4,no,12.5,3.1,none,operations_team,stable_usage
+P-0002,D-1002,2026-06-01,2.1,no,24.8,7.2,open,operations_team,compliance_risk
+P-0003,D-1003,2026-06-01,0,yes,,,open,data_team,no_data_case
+P-0004,D-1004,2026-06-01,5.2,no,38.0,5.4,in_progress,technical_team,high_leak_review
+P-0005,D-1005,2026-06-01,7.0,no,10.2,2.9,completed,operations_team,follow_up_completed
