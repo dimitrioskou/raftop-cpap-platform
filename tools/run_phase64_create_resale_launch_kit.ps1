@@ -1,4 +1,4 @@
-# RAFTOP CPAP CARE Pro
+﻿# RAFTOP CPAP CARE Pro
 # Phase 64 - Resale Launch Kit
 # ASCII-safe version.
 # Safe: creates client-facing resale launch docs only. Does not modify application code.
@@ -399,7 +399,7 @@ Write-Host ""
 $RequiredDocs = @{
     "01_RESALE_LAUNCH_OVERVIEW.md" = @("Resale Launch Overview", "recurring revenue", "not a diagnostic medical device")
     "02_DOCTOR_CLINIC_PACKAGES.md" = @("Doctor and Clinic Packages", "990 EUR", "Clinic Plan")
-    "03_DOCTOR_SALES_TALK_TRACK.md" = @("Doctor Sales Talk Track", "Doctor benefit", "not diagnosis")
+    "03_DOCTOR_SALES_TALK_TRACK.md" = @("Doctor Sales Talk Track", "Doctor benefit", "Do not sell this as diagnosis")
     "04_DOCTOR_ONBOARDING_FLOW.md" = @("Doctor Onboarding Flow", "No-start rule", "billing status")
     "05_RESALE_TENANT_PROVISIONING.md" = @("Resale Tenant Provisioning", "Blocking rule", "agreed patient scope")
     "06_RESELLER_ROLES_AND_SUPPORT.md" = @("Reseller Roles", "Level 1", "unlimited custom development")
