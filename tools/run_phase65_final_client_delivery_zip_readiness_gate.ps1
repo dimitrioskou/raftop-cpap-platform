@@ -1,4 +1,4 @@
-# RAFTOP CPAP CARE Pro
+﻿# RAFTOP CPAP CARE Pro
 # Phase 65.1 - Final Client Delivery ZIP Readiness Gate
 # ASCII-safe version.
 # Safe: read-only verification. Does not modify application code.
@@ -15,7 +15,7 @@ $ToolsDir = Join-Path $Root "tools"
 New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
 
 $Timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$ReportPath = Join-Path $ReportsDir ("phase65_final_client_delivery_zip_readiness_gate_" + $Timestamp + ".md")
+$ReportPath = Join-Path $ReportsDir ("phase65_1_final_client_delivery_zip_readiness_gate_" + $Timestamp + ".md")
 
 $script:PassCount = 0
 $script:WarnCount = 0
@@ -213,7 +213,7 @@ if (Test-Path $ZipPath) {
     try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $Zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
-        $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName }
+        $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName.Replace("\", "/") }
         $Zip.Dispose()
 
         $ZipRequiredEntries = @(
@@ -328,3 +328,4 @@ Write-Host ("FINAL STATUS: " + $FinalStatus)
 Write-Host ""
 
 exit $ExitCode
+
