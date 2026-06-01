@@ -1,0 +1,692 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RAFTOP CPAP CARE Pro - Client Portal v1.0</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { margin:0; font-family: Arial, Helvetica, sans-serif; background:#f4f6f8; color:#111827; }
+.header { background:#0f172a; color:white; padding:36px 44px; }
+.header h1 { margin:0; font-size:32px; }
+.header p { color:#cbd5e1; max-width:1050px; line-height:1.55; }
+.wrap { max-width:1150px; margin:0 auto; padding:28px; }
+.notice { background:white; border-left:7px solid #0f172a; padding:18px 22px; border-radius:12px; margin-bottom:20px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin-bottom:22px; }
+.tile { background:white; border:1px solid #e5e7eb; border-radius:12px; padding:16px; }
+.tile strong { display:block; margin-bottom:6px; }
+.card { background:white; border:1px solid #e5e7eb; border-radius:14px; padding:22px; margin:18px 0; page-break-inside:avoid; }
+.card h2 { margin-top:0; font-size:21px; color:#0f172a; }
+pre { white-space:pre-wrap; word-wrap:break-word; font-family: Consolas, monospace; font-size:13px; line-height:1.55; background:#f9fafb; padding:16px; border-radius:10px; border:1px solid #e5e7eb; }
+.warning { background:#fff7ed; border-left:7px solid #ea580c; padding:18px 22px; border-radius:12px; margin:20px 0; }
+.footer { color:#6b7280; font-size:12px; margin:26px 0; }
+@media print {
+  body { background:white; }
+  .card, .notice, .warning, .tile { box-shadow:none; }
+}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>RAFTOP CPAP CARE Pro - Client Portal v1.0</h1>
+<p>Self-contained client handover portal for Raftopoulos. This file includes the start guide, onboarding, access instructions, data intake template, support/SLA boundaries, and resale launch material in one HTML file.</p>
+</div>
+
+<div class="wrap">
+<div class="notice">
+<strong>Open this file first.</strong><br>
+This portal is self-contained. It does not depend on external Markdown links, so it can be opened directly by double-clicking <strong>index.html</strong> after extracting the ZIP.
+</div>
+
+<div class="warning">
+<strong>Security boundary:</strong> this portal does not include credentials, source code, GitHub access, database credentials, Render secrets, GitHub secrets, .env files, or internal scripts. Credentials must be delivered separately through a controlled channel.
+</div>
+
+<div class="grid">
+<div class="tile"><strong>1. Start</strong> Read the Start Here section.</div>
+<div class="tile"><strong>2. Access</strong> Confirm users and credential channel.</div>
+<div class="tile"><strong>3. Data</strong> Use the embedded CSV template.</div>
+<div class="tile"><strong>4. Onboarding</strong> Book the 60-minute kickoff.</div>
+<div class="tile"><strong>5. Support</strong> Respect SLA/change request boundaries.</div>
+<div class="tile"><strong>6. Resale</strong> Use resale model only with boundaries.</div>
+</div>
+
+<section class='card'><h2>01 - Start Here</h2><pre># RAFTOP CPAP CARE Pro - Start Here
+
+Purpose:
+
+This is the first document for Raftopoulos after purchase or pilot acceptance.
+
+What Raftopoulos receives:
+
+RAFTOP CPAP CARE Pro is a CPAP Operations Control Layer for monitoring CPAP patients, identifying no-data cases, reviewing compliance risk, organizing ATLAS actions, supporting follow-ups, and creating management visibility.
+
+What it is not:
+
+It is not a diagnostic medical device.
+It does not replace physician judgment.
+
+Production frontend:
+
+https://raftop-cpap-frontend.onrender.com
+
+Backend health:
+
+https://raftop-cpap-backend.onrender.com/api/health
+
+First operational goal:
+
+Use the platform to create visibility and action discipline around CPAP patients.
+
+First workflow:
+
+1. Login.
+2. Review dashboard.
+3. Review no-data cases.
+4. Review compliance risk cases.
+5. Review leak or therapy issue signals where data exists.
+6. Create or review ATLAS actions.
+7. Assign owners.
+8. Review open actions.
+9. Prepare management summary.
+
+Important rule:
+
+Do not share passwords, tokens, secrets, database URLs, or patient identifiers through unsecured channels.
+</pre></section>
+<section class='card'><h2>02 - Platform Access Guide</h2><pre># RAFTOP CPAP CARE Pro - Platform Access Guide
+
+Purpose:
+
+Explain how the buyer accesses the platform safely.
+
+Access URL:
+
+https://raftop-cpap-frontend.onrender.com/login
+
+Recommended first users:
+
+1. Buyer Admin.
+2. CPAP Operations User.
+3. Management Viewer.
+4. Technical/Data Contact.
+
+Credential rule:
+
+Credentials must be delivered separately through a controlled channel.
+
+Do not send:
+
+- passwords in group chat
+- admin passwords by public email
+- database credentials
+- tokens
+- Render settings
+- GitHub secrets
+
+Access control rule:
+
+Give each user the minimum access required for their role.
+
+If a user leaves or changes role:
+
+Disable or update access immediately.
+</pre></section>
+<section class='card'><h2>03 - First 7 Days Onboarding Plan</h2><pre># RAFTOP CPAP CARE Pro - First 7 Days Onboarding Plan
+
+Day 1 - Kickoff and access:
+
+- confirm buyer owner
+- confirm operations owner
+- confirm technical/data contact
+- confirm access users
+
+Day 2 - User roles:
+
+- assign admin user
+- assign operations user
+- assign management viewer
+- assign technical/data contact
+
+Day 3 - Data sample:
+
+- confirm data level
+- review first sample
+- check field names
+- confirm data safety
+
+Day 4 - First CPAP signal review:
+
+- review no-data examples
+- review compliance risk examples
+- review leak/therapy signals where data exists
+
+Day 5 - ATLAS workflow:
+
+- create/review ATLAS actions
+- assign owners
+- set statuses
+
+Day 6 - Management reporting:
+
+- review Quality and Profit view
+- define first management summary
+
+Day 7 - Feedback and blockers:
+
+- record blockers
+- confirm next review
+- decide next scope step
+</pre></section>
+<section class='card'><h2>04 - Daily CPAP Operations Workflow</h2><pre># RAFTOP CPAP CARE Pro - Daily CPAP Operations Workflow
+
+Purpose:
+
+Define daily operational use.
+
+Daily workflow:
+
+1. Login.
+2. Review patient overview.
+3. Check no-data cases.
+4. Check compliance risk cases.
+5. Check leak or therapy issue signals where available.
+6. Review ATLAS queue.
+7. Assign actions.
+8. Update statuses.
+9. Escalate blocked cases.
+10. Prepare daily or weekly summary.
+
+Action ownership:
+
+Every important signal should have an owner or a documented reason why no action is needed.
+
+Management value:
+
+The goal is not only to see data. The goal is to turn signals into actions.
+</pre></section>
+<section class='card'><h2>05 - ATLAS Actions Guide</h2><pre># RAFTOP CPAP CARE Pro - ATLAS Actions Guide
+
+Purpose:
+
+Explain ATLAS action handling.
+
+ATLAS action types:
+
+- compliance risk
+- no-data case
+- leak or therapy issue
+- follow-up required
+- technical/data issue
+- management review item
+
+Action fields:
+
+- patient reference
+- signal type
+- priority
+- owner
+- status
+- due date
+- notes
+
+Recommended statuses:
+
+- open
+- in progress
+- waiting
+- resolved
+- escalated
+
+Rule:
+
+An ATLAS action without owner and status is not operational control.
+</pre></section>
+<section class='card'><h2>06 - Compliance / No-Data / Leak Workflow</h2><pre># RAFTOP CPAP CARE Pro - Compliance, No-Data and Leak Workflow
+
+Purpose:
+
+Define the first clinical-operational signals to review.
+
+No-data workflow:
+
+1. Identify patient/device without data.
+2. Check whether data absence is expected.
+3. Assign follow-up owner.
+4. Record action status.
+5. Escalate unresolved cases.
+
+Compliance risk workflow:
+
+1. Identify low or declining usage.
+2. Assign follow-up action.
+3. Record patient contact or action outcome.
+4. Recheck at next review.
+
+Leak or therapy signal workflow:
+
+1. Identify high leak or therapy issue signal where data exists.
+2. Assign technical or clinical review action.
+3. Record outcome.
+
+Boundary:
+
+The platform supports operations and follow-up prioritization. It does not replace medical judgment.
+</pre></section>
+<section class='card'><h2>07 - User Roles and Permissions</h2><pre># RAFTOP CPAP CARE Pro - User Roles and Permissions
+
+Recommended roles:
+
+Buyer Admin:
+
+- manages buyer-side access
+- sees operational overview
+
+CPAP Operations User:
+
+- reviews patient signals
+- works ATLAS actions
+- updates follow-up status
+
+Management Viewer:
+
+- sees executive summaries
+- reviews reporting outputs
+
+Technical/Data Contact:
+
+- supports data sample
+- checks import/data issues
+
+Access principle:
+
+Minimum necessary access.
+
+Do not give admin access to every user.
+</pre></section>
+<section class='card'><h2>08 - Data Intake Requirements</h2><pre># RAFTOP CPAP CARE Pro - Data Intake Requirements
+
+Purpose:
+
+This document defines the required structure for the first CPAP data sample provided by Raftopoulos.
+
+Preferred data levels:
+
+1. demo data
+2. anonymized data
+3. pseudonymized data
+4. real patient data only with legal or DPA framework
+
+Preferred file type:
+
+CSV UTF-8.
+
+Accepted source formats:
+
+- CSV export
+- Excel export converted to CSV
+- structured table exported to CSV
+
+Required fields:
+
+- patient_reference_code
+- device_reference_code
+- date
+- usage_hours
+- no_data_status
+- leak_metric
+- ahi_metric
+- follow_up_status
+- assigned_owner
+- notes
+
+Rules:
+
+- do not send uncontrolled real patient identifiers
+- do not send passwords or credentials in the data file
+- do not mix demo and real data without clear label
+- do not import before preview and approval
+- confirm data sensitivity before transfer
+
+First data objective:
+
+Enable safe review of no-data cases, compliance risk, leak or therapy signals, follow-up status, and ATLAS actions.
+</pre></section>
+<section class='card'><h2>09 - CSV Template</h2><pre>patient_reference_code,device_reference_code,date,usage_hours,no_data_status,leak_metric,ahi_metric,follow_up_status,assigned_owner,notes
+</pre></section>
+<section class='card'><h2>10 - Sample Data Rows</h2><pre>patient_reference_code,device_reference_code,date,usage_hours,no_data_status,leak_metric,ahi_metric,follow_up_status,assigned_owner,notes
+P-0001,D-1001,2026-06-01,6.4,no,12.5,3.1,none,operations_team,stable_usage
+P-0002,D-1002,2026-06-01,2.1,no,24.8,7.2,open,operations_team,compliance_risk
+P-0003,D-1003,2026-06-01,0,yes,,,open,data_team,no_data_case
+P-0004,D-1004,2026-06-01,5.2,no,38.0,5.4,in_progress,technical_team,high_leak_review
+P-0005,D-1005,2026-06-01,7.0,no,10.2,2.9,completed,operations_team,follow_up_completed
+</pre></section>
+<section class='card'><h2>11 - Buyer Onboarding Runbook</h2><pre># RAFTOP CPAP CARE Pro - Buyer Onboarding Runbook
+
+Purpose:
+
+This runbook explains how Raftopoulos starts using RAFTOP CPAP CARE Pro after purchase, pilot acceptance, or annual license activation.
+
+Onboarding goal:
+
+Move from platform access to controlled operational use.
+
+Required before onboarding starts:
+
+- written acceptance
+- billing details
+- payment or payment structure
+- commercial path selected
+- tenant activation
+- buyer sponsor named
+- operations owner named
+- technical/data contact named
+- data boundary confirmed
+
+Onboarding stages:
+
+1. kickoff
+2. user activation
+3. data sample review
+4. first login and route test
+5. first CPAP signal review
+6. ATLAS daily board routine
+7. first management review
+8. blocker review
+9. next scope decision
+
+Boundary:
+
+Onboarding is not unlimited implementation. It follows agreed scope and commercial path.
+</pre></section>
+<section class='card'><h2>12 - Support Scope Overview</h2><pre># RAFTOP CPAP CARE Pro - Support Scope Overview
+
+Purpose:
+
+Define what support includes and what requires separate scope.
+
+Included support within agreed commercial path:
+
+- access issue review
+- login guidance
+- route availability review
+- agreed workflow questions
+- data intake clarification
+- CSV template clarification
+- ATLAS workflow guidance
+- reporting usage guidance
+- incident triage
+- bug investigation within agreed scope
+
+Not included as standard support:
+
+- new features
+- new dashboards
+- live AirView integration
+- mobile app
+- doctor portal production expansion
+- ERP/CRM integration
+- unlimited custom development
+- unplanned data migration
+- 24/7 support unless contracted
+
+Support principle:
+
+Support keeps the agreed platform operating. It does not create unlimited new product scope.
+
+Boundary:
+
+New functionality requires change request approval.
+</pre></section>
+<section class='card'><h2>13 - Out of Scope Items</h2><pre># RAFTOP CPAP CARE Pro - Out of Scope Items
+
+The following are not included unless separately agreed:
+
+- live AirView integration
+- automatic AirView API connection
+- full mobile app
+- patient app
+- full doctor portal production rollout
+- ERP integration
+- CRM integration
+- EOPYY integration
+- automated billing integration
+- unlimited custom dashboards
+- unlimited data migration
+- 24/7 emergency support
+- clinical diagnosis or medical decision automation
+- unrestricted source code handover
+- unrestricted resale rights
+
+Reason:
+
+These items require separate technical, legal, commercial, or implementation scope.
+
+Rule:
+
+Out of scope does not mean impossible. It means separate approval and pricing.
+</pre></section>
+<section class='card'><h2>14 - Resale Launch Overview</h2><pre># RAFTOP CPAP CARE Pro - Resale Launch Overview
+
+Purpose:
+
+This document explains how Raftopoulos can resell RAFTOP CPAP CARE Pro value to doctors and clinics.
+
+Resale positioning:
+
+Raftopoulos can offer CPAP monitoring visibility, structured follow-up support, compliance risk visibility, no-data awareness, ATLAS action discipline, and management/reporting value to doctors and clinics.
+
+Important:
+
+Doctor and clinic resale should start only after the internal Raftopoulos workflow is stable.
+
+Primary resale value:
+
+- recurring revenue
+- stronger doctor relationship
+- CPAP patient retention
+- differentiation beyond device sales
+- structured reporting service
+- controlled doctor/clinic access
+
+What doctors buy:
+
+Doctors and clinics do not buy source code. They buy access, visibility, reports, and structured CPAP follow-up information under an agreed package.
+
+Boundary:
+
+RAFTOP supports operations, reporting, and follow-up prioritization. It is not a diagnostic medical device and does not replace physician judgment.
+</pre></section>
+<section class='card'><h2>15 - Doctor / Clinic Packages</h2><pre># RAFTOP CPAP CARE Pro - Doctor and Clinic Packages
+
+Purpose:
+
+Define resale packages for doctors and clinics.
+
+Package 1 - Basic CPAP Report
+
+Price:
+490 EUR per doctor per year plus VAT.
+
+Includes:
+- periodic CPAP patient summary
+- risk list
+- no-data visibility summary
+- basic compliance risk visibility
+- report export or summary
+
+Best for:
+Doctors who want periodic CPAP patient visibility without full dashboard use.
+
+Package 2 - Doctor Dashboard
+
+Price:
+990 EUR per doctor per year plus VAT.
+
+Includes:
+- doctor-specific dashboard
+- assigned patient visibility
+- no-data cases
+- compliance risk cases
+- ATLAS action visibility
+- reports
+
+Best for:
+Doctors who want ongoing visibility for their CPAP patients.
+
+Package 3 - Clinic Plan
+
+Price:
+1900 to 2900 EUR per clinic per year plus VAT.
+
+Includes:
+- clinic-level overview
+- multiple users
+- patient group reporting
+- management summary
+- review cadence
+
+Best for:
+Clinics with multiple doctors or larger CPAP patient groups.
+
+Pricing rule:
+
+Do not discount before scope is clear. If price is reduced, scope must also be reduced.
+</pre></section>
+<section class='card'><h2>16 - Resale Boundaries and Contract Rules</h2><pre># RAFTOP CPAP CARE Pro - Resale Boundaries and Contract Rules
+
+Purpose:
+
+Prevent uncontrolled resale, unlimited access, or unclear commercial rights.
+
+Required before resale:
+
+- resale rights clarified
+- pricing approved
+- support responsibilities defined
+- tenant provisioning rules accepted
+- data controller/processor roles clarified
+- white-label rights clarified if applicable
+- renewal handling defined
+- access blocking for non-payment defined
+
+Not allowed without written agreement:
+
+- unrestricted resale rights
+- source code handover
+- unlimited doctor tenants
+- unlimited custom development
+- uncontrolled patient data transfer
+- use as diagnostic medical device
+- 24/7 support commitment
+
+Commercial rule:
+
+Every resale customer must have a package, price, billing status, support level, and renewal date.
+
+Legal/data rule:
+
+Real patient data requires appropriate legal/data protection framework.
+
+Final boundary:
+
+Resale must scale with governance. Scaling without boundaries destroys product value.
+</pre></section>
+<section class='card'><h2>17 - Delivery Manifest</h2><pre># RAFTOP CPAP CARE Pro - Delivery Manifest
+
+Delivery package:
+
+RAFTOP_CLIENT_START_PACK_v1.0.zip
+
+Included folders:
+
+00_START_HERE.md
+01_EXECUTIVE_SUMMARY.md
+02_CLIENT_START_PACK/
+03_DELIVERY_MANIFEST.md
+04_SECURITY_BOUNDARY.md
+05_VERSION_LOCK.md
+
+Client start pack contains:
+
+- client start documents
+- production access and tenant activation pack
+- data intake and CSV template pack
+- buyer onboarding runbook pack
+- support/SLA/change request pack
+- resale launch kit
+
+Excluded materials:
+
+- tools/
+- reports/
+- enterprise-backend/
+- enterprise-frontend/
+- node_modules/
+- .git/
+- .env files
+- secrets
+- raw logs
+- backup folders
+
+Delivery rule:
+
+This ZIP is safe for client-facing handover. It is not a source-code handover.
+</pre></section>
+<section class='card'><h2>18 - Security Boundary</h2><pre># RAFTOP CPAP CARE Pro - Security Boundary
+
+This package must not contain credentials, tokens, secrets, database URLs, source code, internal scripts, or developer-only logs.
+
+Credential delivery:
+
+Credentials must be delivered separately through a controlled channel.
+
+Do not send:
+
+- passwords in group chats
+- admin credentials in public email threads
+- database URLs
+- Render secrets
+- GitHub secrets
+- raw tokens
+- patient identifiers through uncontrolled channels
+
+Production access:
+
+Production access is controlled platform access, not source code handover.
+
+Data rule:
+
+Use demo, anonymized, or pseudonymized data unless real patient data has legal/data protection approval.
+
+Boundary:
+
+RAFTOP supports operations, reporting, and follow-up prioritization. It is not a diagnostic medical device.
+</pre></section>
+<section class='card'><h2>19 - Version Lock</h2><pre># RAFTOP CPAP CARE Pro - Version Lock
+
+Delivery version:
+
+v1.0
+
+Package:
+
+RAFTOP_CLIENT_START_PACK_v1.0.zip
+
+Readiness chain:
+
+PHASE59_FINAL_CLIENT_START_PACK_READINESS_READY
+PHASE60_FINAL_PRODUCTION_ACCESS_TENANT_ACTIVATION_READINESS_READY
+PHASE61_FINAL_DATA_INTAKE_CSV_TEMPLATE_READINESS_READY
+PHASE62_FINAL_BUYER_ONBOARDING_RUNBOOK_READINESS_READY
+PHASE63_FINAL_SUPPORT_SLA_CHANGE_REQUEST_READINESS_READY
+PHASE64_FINAL_RESALE_LAUNCH_KIT_READINESS_READY
+
+Version rule:
+
+Anything added after this client delivery package is a new version or change request, not part of the v1.0 client start pack.
+</pre></section>
+
+<p class="footer">RAFTOP CPAP CARE Pro - Client Portal v1.0. This package supports operations, reporting, and follow-up prioritization. It is not a diagnostic medical device.</p>
+</div>
+</body>
+</html>
