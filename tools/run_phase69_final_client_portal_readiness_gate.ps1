@@ -1,0 +1,325 @@
+# RAFTOP CPAP CARE Pro
+# Phase 69.1 - Final Client Portal Readiness Gate
+# ASCII-safe version.
+# Safe: read-only verification. Does not modify application code.
+
+$ErrorActionPreference = "Continue"
+
+$Root = "C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE"
+$ReportsDir = Join-Path $Root "reports"
+$DeliveryRoot = Join-Path $Root "client-delivery"
+$PortalDir = Join-Path $DeliveryRoot "RAFTOP_CLIENT_PORTAL_v1.0"
+$PortalZip = Join-Path $DeliveryRoot "RAFTOP_CLIENT_PORTAL_v1.0.zip"
+$HtmlPath = Join-Path $PortalDir "index.html"
+$CssPath = Join-Path $PortalDir "assets\style.css"
+$PdfPath = Join-Path $PortalDir "RAFTOP_CLIENT_START_PACK_v1.0.pdf"
+$ToolsDir = Join-Path $Root "tools"
+
+New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
+
+$Timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$ReportPath = Join-Path $ReportsDir ("phase69_final_client_portal_readiness_gate_" + $Timestamp + ".md")
+
+$script:PassCount = 0
+$script:WarnCount = 0
+$script:FailCount = 0
+
+function Write-ReportLine {
+    param([string]$Text)
+    Add-Content -Path $ReportPath -Value $Text -Encoding UTF8
+}
+
+function Add-Result {
+    param([string]$Name, [string]$Status, [string]$Details)
+
+    if ($Status -eq "PASS") {
+        $script:PassCount++
+    } elseif ($Status -eq "WARN") {
+        $script:WarnCount++
+    } else {
+        $script:FailCount++
+    }
+
+    Write-ReportLine ("CHECK: " + $Name)
+    Write-ReportLine ("STATUS: " + $Status)
+    Write-ReportLine ("DETAILS: " + $Details)
+    Write-ReportLine ""
+
+    Write-Host ($Status + " - " + $Name)
+}
+
+function Read-FileSafe {
+    param([string]$Path)
+
+    if (Test-Path $Path) {
+        try {
+            return Get-Content -Path $Path -Raw -ErrorAction Stop
+        } catch {
+            return ""
+        }
+    }
+
+    return ""
+}
+
+function ContainsText {
+    param([string]$Content, [string]$Needle)
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $false
+    }
+
+    return $Content.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Get-LatestReport {
+    param([string]$Pattern)
+
+    $Files = Get-ChildItem -Path $ReportsDir -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like $Pattern
+    } | Sort-Object LastWriteTime -Descending
+
+    if ($Files.Count -gt 0) {
+        return $Files[0]
+    }
+
+    return $null
+}
+
+function Check-ReportStatus {
+    param([string]$Name, [string]$Pattern, [string[]]$AcceptedStatuses)
+
+    $Latest = Get-LatestReport $Pattern
+
+    if ($null -eq $Latest) {
+        Add-Result $Name "FAIL" ("No report found for pattern: " + $Pattern)
+        return
+    }
+
+    $Content = Read-FileSafe $Latest.FullName
+
+    foreach ($Status in $AcceptedStatuses) {
+        if (ContainsText $Content ("FINAL STATUS: " + $Status)) {
+            Add-Result $Name "PASS" ("Latest acceptable report: " + $Latest.Name + " / " + $Status)
+            return
+        }
+    }
+
+    Add-Result $Name "FAIL" ("Latest report exists but final status is not acceptable: " + $Latest.Name)
+}
+
+function Test-PathExists {
+    param([string]$Name, [string]$Path)
+
+    if (Test-Path $Path) {
+        Add-Result $Name "PASS" ("Found: " + $Path)
+    } else {
+        Add-Result $Name "FAIL" ("Missing: " + $Path)
+    }
+}
+
+function Test-FileMarker {
+    param([string]$Name, [string]$Path, [string]$Marker)
+
+    $Content = Read-FileSafe $Path
+
+    if (ContainsText $Content $Marker) {
+        Add-Result ($Name + ": " + $Marker) "PASS" "Marker found."
+    } else {
+        Add-Result ($Name + ": " + $Marker) "FAIL" "Marker missing."
+    }
+}
+
+Set-Content -Path $ReportPath -Value "# RAFTOP CPAP CARE Pro - Phase 69 Final Client Portal Readiness Gate" -Encoding UTF8
+Write-ReportLine ""
+Write-ReportLine ("Generated: " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+Write-ReportLine ""
+
+Write-Host ""
+Write-Host "Running RAFTOP Phase 69.1 Final Client Portal Readiness Gate..."
+Write-Host ""
+
+# Previous readiness gates
+Check-ReportStatus "Phase 69 client portal HTML PDF pack" "phase69_client_portal_html_pdf_pack_*.md" @(
+    "PHASE69_CLIENT_PORTAL_HTML_PDF_PACK_READY"
+)
+
+Check-ReportStatus "Phase 68 final delivery execution kickoff readiness" "phase68_final_delivery_execution_kickoff_readiness_gate_*.md" @(
+    "PHASE68_FINAL_DELIVERY_EXECUTION_KICKOFF_READINESS_READY"
+)
+
+Check-ReportStatus "Phase 67 final client delivery message readiness" "phase67_final_client_delivery_message_readiness_gate_*.md" @(
+    "PHASE67_FINAL_CLIENT_DELIVERY_MESSAGE_READINESS_READY"
+)
+
+Check-ReportStatus "Phase 66 final client delivery master" "phase66_final_client_delivery_master_gate_*.md" @(
+    "PHASE66_FINAL_CLIENT_DELIVERY_MASTER_READY"
+)
+
+# Portal artifact checks
+Test-PathExists "Portal folder exists" $PortalDir
+Test-PathExists "Portal ZIP exists" $PortalZip
+Test-PathExists "Portal index.html exists" $HtmlPath
+Test-PathExists "Portal CSS exists" $CssPath
+Test-PathExists "Portal PDF exists" $PdfPath
+
+# Required portal files
+$RequiredFiles = @(
+    "index.html",
+    "assets\style.css",
+    "RAFTOP_CLIENT_START_PACK_v1.0.pdf",
+    "02_CLIENT_START_PACK\01_START_HERE_RAFTOP_CPAP_CARE_PRO.md",
+    "02_CLIENT_START_PACK\production-access-tenant-activation\01_PRODUCTION_ACCESS_OVERVIEW.md",
+    "02_CLIENT_START_PACK\data-intake-csv-template\02_RAFTOP_CPAP_DATA_TEMPLATE.csv",
+    "02_CLIENT_START_PACK\buyer-onboarding-runbook\01_BUYER_ONBOARDING_RUNBOOK.md",
+    "02_CLIENT_START_PACK\support-sla-change-requests\01_SUPPORT_SCOPE_OVERVIEW.md",
+    "02_CLIENT_START_PACK\resale-launch-kit\01_RESALE_LAUNCH_OVERVIEW.md",
+    "02_CLIENT_START_PACK\resale-launch-kit\07_RESALE_BOUNDARIES_AND_CONTRACT_RULES.md",
+    "03_DELIVERY_MANIFEST.md",
+    "04_SECURITY_BOUNDARY.md",
+    "05_VERSION_LOCK.md"
+)
+
+foreach ($File in $RequiredFiles) {
+    Test-PathExists ("Portal required file exists: " + $File) (Join-Path $PortalDir $File)
+}
+
+# HTML markers
+Test-FileMarker "HTML marker" $HtmlPath "Client Start Portal v1.0"
+Test-FileMarker "HTML marker" $HtmlPath "Credentials must be delivered separately"
+Test-FileMarker "HTML marker" $HtmlPath "not a diagnostic medical device"
+Test-FileMarker "HTML marker" $HtmlPath "Operational start sequence"
+Test-FileMarker "HTML marker" $HtmlPath "Security boundary"
+
+# PDF basic size check
+if (Test-Path $PdfPath) {
+    $PdfItem = Get-Item $PdfPath
+    if ($PdfItem.Length -gt 1000) {
+        Add-Result "PDF file size" "PASS" ("PDF size bytes: " + $PdfItem.Length)
+    } else {
+        Add-Result "PDF file size" "WARN" ("PDF exists but size is small: " + $PdfItem.Length)
+    }
+}
+
+# ZIP content inspection
+if (Test-Path $PortalZip) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $Zip = [System.IO.Compression.ZipFile]::OpenRead($PortalZip)
+        $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName.Replace("\", "/") }
+        $Zip.Dispose()
+
+        $RequiredZipEntries = @(
+            "index.html",
+            "assets/style.css",
+            "RAFTOP_CLIENT_START_PACK_v1.0.pdf",
+            "02_CLIENT_START_PACK/01_START_HERE_RAFTOP_CPAP_CARE_PRO.md",
+            "02_CLIENT_START_PACK/production-access-tenant-activation/01_PRODUCTION_ACCESS_OVERVIEW.md",
+            "02_CLIENT_START_PACK/data-intake-csv-template/02_RAFTOP_CPAP_DATA_TEMPLATE.csv",
+            "02_CLIENT_START_PACK/buyer-onboarding-runbook/01_BUYER_ONBOARDING_RUNBOOK.md",
+            "02_CLIENT_START_PACK/support-sla-change-requests/01_SUPPORT_SCOPE_OVERVIEW.md",
+            "02_CLIENT_START_PACK/resale-launch-kit/07_RESALE_BOUNDARIES_AND_CONTRACT_RULES.md",
+            "03_DELIVERY_MANIFEST.md",
+            "04_SECURITY_BOUNDARY.md",
+            "05_VERSION_LOCK.md"
+        )
+
+        foreach ($Entry in $RequiredZipEntries) {
+            if ($ZipEntries -contains $Entry) {
+                Add-Result ("Portal ZIP entry exists: " + $Entry) "PASS" "Entry found."
+            } else {
+                Add-Result ("Portal ZIP entry exists: " + $Entry) "FAIL" "Entry missing."
+            }
+        }
+
+        $ForbiddenEntries = @(
+            "tools/",
+            "reports/",
+            "enterprise-backend/",
+            "enterprise-frontend/",
+            "node_modules/",
+            ".git/",
+            ".env",
+            "RAFTOP_BACKUPS_ARCHIVE",
+            "RAFTOP_EXTERNAL_BACKUPS"
+        )
+
+        foreach ($Forbidden in $ForbiddenEntries) {
+            $Matches = $ZipEntries | Where-Object {
+                $_ -like ("*" + $Forbidden + "*")
+            }
+
+            if ($Matches.Count -eq 0) {
+                Add-Result ("Forbidden portal ZIP content absent: " + $Forbidden) "PASS" "No matching ZIP entries."
+            } else {
+                Add-Result ("Forbidden portal ZIP content absent: " + $Forbidden) "FAIL" ("Found: " + ($Matches -join "; "))
+            }
+        }
+    } catch {
+        Add-Result "Portal ZIP content readable" "FAIL" ("Could not inspect ZIP: " + $_.Exception.Message)
+    }
+}
+
+# Required scripts
+$RequiredTools = @(
+    "run_phase69_create_client_portal_html_pdf_pack.ps1",
+    "run_phase69_final_client_portal_readiness_gate.ps1"
+)
+
+foreach ($Tool in $RequiredTools) {
+    Test-PathExists ("Tool exists: " + $Tool) (Join-Path $ToolsDir $Tool)
+}
+
+# Git status
+Push-Location $Root
+$GitStatus = git status --porcelain 2>&1
+$GitExit = $LASTEXITCODE
+Pop-Location
+
+if ($GitExit -ne 0) {
+    Add-Result "Git status" "WARN" "Could not read git status."
+} elseif ([string]::IsNullOrWhiteSpace($GitStatus)) {
+    Add-Result "Git working tree" "PASS" "Working tree is clean."
+} else {
+    Add-Result "Git working tree" "WARN" "There are uncommitted/untracked changes."
+    Write-ReportLine "GIT_STATUS:"
+    Write-ReportLine ($GitStatus | Out-String)
+    Write-ReportLine ""
+}
+
+Write-ReportLine "------------------------------------------------------------"
+Write-ReportLine ""
+Write-ReportLine ("PASS_COUNT: " + $script:PassCount)
+Write-ReportLine ("WARN_COUNT: " + $script:WarnCount)
+Write-ReportLine ("FAIL_COUNT: " + $script:FailCount)
+Write-ReportLine ""
+
+if ($script:FailCount -gt 0) {
+    $FinalStatus = "PHASE69_FINAL_CLIENT_PORTAL_READINESS_FAILED"
+    $ExitCode = 1
+} elseif ($script:WarnCount -gt 0) {
+    $FinalStatus = "PHASE69_FINAL_CLIENT_PORTAL_READINESS_READY_WITH_WARNINGS"
+    $ExitCode = 0
+} else {
+    $FinalStatus = "PHASE69_FINAL_CLIENT_PORTAL_READINESS_READY"
+    $ExitCode = 0
+}
+
+Write-ReportLine ("FINAL STATUS: " + $FinalStatus)
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "RAFTOP CPAP CARE Pro - Phase 69 Final Client Portal Readiness Gate"
+Write-Host "============================================================"
+Write-Host ""
+Write-Host "Report created:"
+Write-Host $ReportPath
+Write-Host ""
+Write-Host ("PASS_COUNT: " + $script:PassCount)
+Write-Host ("WARN_COUNT: " + $script:WarnCount)
+Write-Host ("FAIL_COUNT: " + $script:FailCount)
+Write-Host ""
+Write-Host ("FINAL STATUS: " + $FinalStatus)
+Write-Host ""
+
+exit $ExitCode
