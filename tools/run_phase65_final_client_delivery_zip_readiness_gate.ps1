@@ -137,7 +137,7 @@ Write-Host "Running RAFTOP Phase 65.1 Final Client Delivery ZIP Readiness Gate..
 Write-Host ""
 
 # Previous readiness gates
-Check-ReportStatus "Phase 65 final client delivery ZIP" "phase65_final_client_delivery_zip_*.md" @(
+Check-ReportStatus "Phase 65 final client delivery ZIP" "phase65_final_client_delivery_zip_20*.md" @(
     "PHASE65_FINAL_CLIENT_DELIVERY_ZIP_READY"
 )
 
@@ -328,4 +328,5 @@ Write-Host ("FINAL STATUS: " + $FinalStatus)
 Write-Host ""
 
 exit $ExitCode
+
 
