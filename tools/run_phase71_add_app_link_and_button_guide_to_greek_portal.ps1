@@ -1,32 +1,103 @@
-﻿<!doctype html>
-<html lang="el">
-<head>
-<meta charset="utf-8">
-<title>RAFTOP CPAP CARE Pro - Ελληνικό Client Portal v1.0</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- REQUIRED_MARKER: GREEK_PORTAL -->
-<!-- REQUIRED_MARKER: BUYER_CLEAN -->
-<!-- REQUIRED_MARKER: SELF_CONTAINED -->
-<style>
-body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;color:#111827}
-.header{background:#0f172a;color:#fff;padding:36px 46px}
-.header h1{margin:0;font-size:32px}
-.header p{max-width:1050px;color:#cbd5e1;line-height:1.6;font-size:16px}
-.wrap{max-width:1120px;margin:0 auto;padding:28px}
-.notice,.section,.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 8px rgba(15,23,42,.08)}
-.notice{border-left:7px solid #0f172a;padding:18px 22px;margin-bottom:20px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:20px 0}
-.card{padding:20px}
-.card h2,.section h2{margin-top:0;color:#0f172a}
-.card p,.card li,.section p{color:#374151;line-height:1.6;font-size:14px}
-.section{padding:22px;margin:20px 0}
-table{width:100%;border-collapse:collapse;margin-top:12px}
-th,td{border-bottom:1px solid #e5e7eb;padding:12px;text-align:left;font-size:14px;vertical-align:top}
-th{background:#f3f4f6}
-.badge{display:inline-block;background:#e5e7eb;padding:4px 8px;border-radius:999px;font-size:12px;margin:3px}
-.footer{color:#6b7280;font-size:12px;margin:26px 0}
-@media print{body{background:#fff}.card,.section,.notice{box-shadow:none}}
-</style>
+# RAFTOP CPAP CARE Pro
+# Phase 71 - Add App Link and Greek Button Guide to Greek Buyer-Clean Portal
+# ASCII-safe script. Greek text is rendered through HTML entities.
+# Safe: modifies only the Greek buyer-clean portal delivery artifact.
+
+$ErrorActionPreference = "Stop"
+
+$Root = "C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE"
+$ReportsDir = Join-Path $Root "reports"
+$DeliveryRoot = Join-Path $Root "client-delivery"
+$PortalDir = Join-Path $DeliveryRoot "RAFTOP_CLIENT_PORTAL_BUYER_CLEAN_EL_v1.0"
+$ZipPath = Join-Path $DeliveryRoot "RAFTOP_CLIENT_PORTAL_BUYER_CLEAN_EL_v1.0.zip"
+$HtmlPath = Join-Path $PortalDir "index.html"
+$PdfPath = Join-Path $PortalDir "RAFTOP_CLIENT_PORTAL_BUYER_CLEAN_EL_v1.0.pdf"
+
+# IMPORTANT:
+# If your production frontend URL is different, change only this line.
+$AppUrl = "https://raftop-cpap-frontend.onrender.com/login"
+
+New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
+
+$Timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$ReportPath = Join-Path $ReportsDir ("phase71_app_link_button_guide_greek_portal_" + $Timestamp + ".md")
+
+$script:PassCount = 0
+$script:WarnCount = 0
+$script:FailCount = 0
+
+function Add-Result {
+    param([string]$Name, [string]$Status, [string]$Details)
+
+    if ($Status -eq "PASS") { $script:PassCount++ }
+    elseif ($Status -eq "WARN") { $script:WarnCount++ }
+    else { $script:FailCount++ }
+
+    Add-Content -Path $ReportPath -Value ("CHECK: " + $Name) -Encoding UTF8
+    Add-Content -Path $ReportPath -Value ("STATUS: " + $Status) -Encoding UTF8
+    Add-Content -Path $ReportPath -Value ("DETAILS: " + $Details) -Encoding UTF8
+    Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+
+    Write-Host ($Status + " - " + $Name)
+}
+
+function Read-FileSafe {
+    param([string]$Path)
+
+    if (Test-Path $Path) {
+        return Get-Content -Path $Path -Raw -Encoding UTF8
+    }
+
+    return ""
+}
+
+function ContainsText {
+    param([string]$Content, [string]$Needle)
+
+    if ([string]::IsNullOrWhiteSpace($Content)) { return $false }
+    return $Content.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Insert-BeforeIgnoreCase {
+    param([string]$Content, [string]$Needle, [string]$InsertText)
+
+    $Index = $Content.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase)
+
+    if ($Index -lt 0) {
+        return $Content + "`r`n" + $InsertText
+    }
+
+    return $Content.Substring(0, $Index) + $InsertText + "`r`n" + $Content.Substring($Index)
+}
+
+Set-Content -Path $ReportPath -Value "# RAFTOP CPAP CARE Pro - Phase 71 App Link and Greek Button Guide" -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("Generated: " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")) -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+
+Write-Host ""
+Write-Host "Running RAFTOP Phase 71 App Link and Greek Button Guide..."
+Write-Host ""
+
+if (Test-Path $HtmlPath) {
+    Add-Result "Greek portal index.html exists" "PASS" $HtmlPath
+} else {
+    Add-Result "Greek portal index.html exists" "FAIL" $HtmlPath
+}
+
+if (Test-Path $PortalDir) {
+    Add-Result "Greek portal folder exists" "PASS" $PortalDir
+} else {
+    Add-Result "Greek portal folder exists" "FAIL" $PortalDir
+}
+
+$Html = Read-FileSafe $HtmlPath
+
+# Remove previous Phase 71 injection if rerun
+$Html = [regex]::Replace($Html, '(?s)<!-- RAFTOP_APP_ACCESS_GUIDE_STYLE_START -->.*?<!-- RAFTOP_APP_ACCESS_GUIDE_STYLE_END -->', '')
+$Html = [regex]::Replace($Html, '(?s)<!-- RAFTOP_APP_ACCESS_GUIDE_START -->.*?<!-- RAFTOP_APP_ACCESS_GUIDE_END -->', '')
+
+$StyleBlock = @'
 <!-- RAFTOP_APP_ACCESS_GUIDE_STYLE_START -->
 <style>
 .app-access-panel {
@@ -89,118 +160,16 @@ th{background:#f3f4f6}
 }
 </style>
 <!-- RAFTOP_APP_ACCESS_GUIDE_STYLE_END -->
-</head>
-<body>
-<header class="header">
-<h1>RAFTOP CPAP CARE Pro - Ελληνικό Client Portal v1.0</h1>
-<p>Ελληνικό portal παράδοσης για την οργανωμένη έναρξη χρήσης της πλατφόρμας από τη Ραυτόπουλος. Περιλαμβάνει τη συνοπτική λειτουργία, τη διαδικασία πρόσβασης, το onboarding, τη δομή δεδομένων, την υποστήριξη και τη μελλοντική αξιοποίηση σε ιατρούς και ιατρεία.</p>
-</header>
-<main class="wrap">
-<div class="notice"><strong>Πρώτο βήμα:</strong> Διαβάστε αυτό το portal πριν από το kickoff meeting. Στόχος είναι να συμφωνηθούν οι χρήστες, οι ρόλοι, τα όρια δεδομένων, το πρώτο δείγμα δεδομένων και η πρώτη επιχειρησιακή ανασκόπηση.</div>
+'@
 
-<section class="section">
-<h2>1. Τι παρέχει το RAFTOP CPAP CARE Pro</h2>
-<p>Το RAFTOP CPAP CARE Pro είναι πλατφόρμα επιχειρησιακής παρακολούθησης και οργάνωσης follow-up για ασθενείς με CPAP. Υποστηρίζει ορατότητα σε περιστατικά χωρίς δεδομένα, παρακολούθηση κινδύνου συμμόρφωσης, οργάνωση ενεργειών μέσω ATLAS, follow-up ασθενών και αναφορές διοίκησης.</p>
-<p>Η πλατφόρμα υποστηρίζει την επιχειρησιακή οργάνωση, την αναφορά και την προτεραιοποίηση follow-up. Δεν αποτελεί διαγνωστικό ιατροτεχνολογικό προϊόν και δεν αντικαθιστά την ιατρική κρίση.</p>
-<p><span class="badge">CPAP operations</span><span class="badge">Follow-up</span><span class="badge">ATLAS</span><span class="badge">Αναφορές</span><span class="badge">Αξιοποίηση σε ιατρούς</span></p>
-</section>
-
-<div class="grid">
-<div class="card"><h2>Πρόσβαση</h2><p>Η πρόσβαση παρέχεται μέσα από το συμφωνημένο production περιβάλλον. Τα στοιχεία πρόσβασης παραδίδονται ξεχωριστά, μετά την επιβεβαίωση των ονομαστικών χρηστών και των ρόλων.</p><ul><li>Buyer Admin</li><li>CPAP Operations User</li><li>Management Viewer</li><li>Technical / Data Contact</li></ul></div>
-<div class="card"><h2>Ενεργοποίηση</h2><p>Το περιβάλλον της Ραυτόπουλος ενεργοποιείται με συγκεκριμένο εμπορικό πλαίσιο, ρόλους χρηστών, επίπεδο υποστήριξης, όρια δεδομένων και ημερομηνία πρώτης ανασκόπησης.</p></div>
-<div class="card"><h2>Πρώτα δεδομένα</h2><p>Το πρώτο δείγμα δεδομένων πρέπει να δοθεί σε δομημένο CSV με ελεγχόμενους κωδικούς αναφοράς. Για την αρχική αξιολόγηση προτιμώνται demo, ανωνυμοποιημένα ή ψευδωνυμοποιημένα δεδομένα.</p></div>
-<div class="card"><h2>Onboarding</h2><p>Η έναρξη χρήσης ξεκινά με kickoff 60 λεπτών και συνεχίζεται με ενεργοποίηση χρηστών, έλεγχο πρώτου δείγματος δεδομένων, review του ATLAS workflow και πρώτη management αναφορά.</p></div>
-<div class="card"><h2>Υποστήριξη</h2><p>Η υποστήριξη καλύπτει τη συμφωνημένη πρόσβαση, τη χρήση της ροής εργασίας, τη διευκρίνιση δεδομένων, την καθοδήγηση ATLAS και τη χρήση των αναφορών.</p></div>
-<div class="card"><h2>Αξιοποίηση σε ιατρούς</h2><p>Μετά τη σταθεροποίηση της εσωτερικής ροής, η πλατφόρμα μπορεί να αξιοποιηθεί ως υπηρεσία ορατότητας και reporting για ιατρούς και ιατρεία που παρακολουθούν ασθενείς με CPAP.</p></div>
-</div>
-
-<section class="section">
-<h2>2. Σειρά έναρξης χρήσης</h2>
-<table>
-<tr><th>Βήμα</th><th>Ενέργεια</th><th>Αποτέλεσμα</th></tr>
-<tr><td>1</td><td>Επιβεβαίωση παραλαβής του ελληνικού client portal</td><td>Καταγεγραμμένη παραλαβή</td></tr>
-<tr><td>2</td><td>Ορισμός buyer sponsor, operations owner και technical/data contact</td><td>Λίστα υπευθύνων</td></tr>
-<tr><td>3</td><td>Επιβεβαίωση πρώτων χρηστών και ρόλων</td><td>Λίστα χρηστών</td></tr>
-<tr><td>4</td><td>Επιβεβαίωση τρόπου παράδοσης στοιχείων πρόσβασης</td><td>Ελεγχόμενη διαδικασία πρόσβασης</td></tr>
-<tr><td>5</td><td>Προετοιμασία πρώτου δείγματος δεδομένων</td><td>Έτοιμο CSV / data preview</td></tr>
-<tr><td>6</td><td>Kickoff 60 λεπτών</td><td>Ευθυγράμμιση scope, χρηστών, δεδομένων και επόμενων ενεργειών</td></tr>
-<tr><td>7</td><td>Προγραμματισμός πρώτης επιχειρησιακής ανασκόπησης</td><td>Review 3 έως 7 ημέρες μετά το kickoff</td></tr>
-</table>
-</section>
-
-<section class="section">
-<h2>3. Πλάνο πρώτων 7 ημερών</h2>
-<table>
-<tr><th>Ημέρα</th><th>Στόχος</th></tr>
-<tr><td>Ημέρα 1</td><td>Kickoff, υπεύθυνοι, πρόσβαση και όρια δεδομένων</td></tr>
-<tr><td>Ημέρα 2</td><td>Επιβεβαίωση ρόλων χρηστών και πρώτο login test</td></tr>
-<tr><td>Ημέρα 3</td><td>Έλεγχος πρώτου CSV / δείγματος δεδομένων</td></tr>
-<tr><td>Ημέρα 4</td><td>Έλεγχος no-data και compliance risk περιστατικών</td></tr>
-<tr><td>Ημέρα 5</td><td>Review ATLAS action workflow</td></tr>
-<tr><td>Ημέρα 6</td><td>Management reporting και πρώτη σύνοψη</td></tr>
-<tr><td>Ημέρα 7</td><td>Blockers, feedback και επόμενη επιχειρησιακή απόφαση</td></tr>
-</table>
-</section>
-
-<section class="section">
-<h2>4. Δομή πρώτου CSV</h2>
-<table>
-<tr><th>Πεδίο</th><th>Περιγραφή</th></tr>
-<tr><td>patient_reference_code</td><td>Ψευδωνυμοποιημένος κωδικός ασθενούς</td></tr>
-<tr><td>device_reference_code</td><td>Ψευδωνυμοποιημένος κωδικός συσκευής</td></tr>
-<tr><td>date</td><td>Ημερομηνία δεδομένων θεραπείας σε μορφή YYYY-MM-DD</td></tr>
-<tr><td>usage_hours</td><td>Ώρες χρήσης CPAP</td></tr>
-<tr><td>no_data_status</td><td>Ένδειξη yes/no για απουσία δεδομένων</td></tr>
-<tr><td>leak_metric</td><td>Τιμή διαρροής, όπου υπάρχει</td></tr>
-<tr><td>ahi_metric</td><td>Τιμή AHI, όπου υπάρχει</td></tr>
-<tr><td>follow_up_status</td><td>none, open, in_progress, completed ή blocked</td></tr>
-<tr><td>assigned_owner</td><td>Υπεύθυνος ή ομάδα follow-up</td></tr>
-</table>
-</section>
-
-<section class="section">
-<h2>5. Πλαίσιο υποστήριξης και change requests</h2>
-<p>Η βασική υποστήριξη καλύπτει τη συμφωνημένη πρόσβαση, τη διαθεσιμότητα βασικών οθονών, το onboarding, τη χρήση των δεδομένων, την καθοδήγηση ATLAS, τη χρήση αναφορών και την αρχική διερεύνηση περιστατικών.</p>
-<p>Νέες λειτουργίες, νέες αναφορές, integrations, mobile εφαρμογές, μεγάλα custom reports, επέκταση σε ιατρούς/ιατρεία και πρόσθετοι αυτοματισμοί αξιολογούνται με ξεχωριστή γραπτή περιγραφή scope, εμπορική έγκριση και χρονοδιάγραμμα.</p>
-</section>
-
-<section class="section">
-<h2>6. Μελλοντική αξιοποίηση σε ιατρούς και ιατρεία</h2>
-<p>Η Ραυτόπουλος μπορεί να αξιοποιήσει την πλατφόρμα ως βάση για οργανωμένες υπηρεσίες CPAP reporting και follow-up visibility προς ιατρούς και ιατρεία. Η προτεινόμενη προσέγγιση είναι να προηγηθεί η σταθεροποίηση της εσωτερικής ροής και μετά να ξεκινήσει η εμπορική αξιοποίηση.</p>
-<table>
-<tr><th>Πακέτο</th><th>Ενδεικτική χρήση</th></tr>
-<tr><td>Basic CPAP Report</td><td>Περιοδική εικόνα ασθενών και σύνοψη κινδύνων</td></tr>
-<tr><td>Doctor Dashboard</td><td>Συνεχής ορατότητα για τους ασθενείς CPAP συγκεκριμένου ιατρού</td></tr>
-<tr><td>Clinic Plan</td><td>Πολυχρηστική εικόνα κλινικής και management reporting</td></tr>
-</table>
-</section>
-
-<section class="section">
-<h2>7. Checklist παράδοσης</h2>
-<table>
-<tr><th>Σημείο</th><th>Κατάσταση</th></tr>
-<tr><td>Παραλαβή ελληνικού client portal</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Ορισμός buyer sponsor</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Ορισμός operations owner</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Ορισμός technical/data contact</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Ορισμός πρώτων χρηστών</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Επιβεβαίωση διαδικασίας πρόσβασης</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Προετοιμασία πρώτου δείγματος δεδομένων</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Προγραμματισμός kickoff</td><td>Προς επιβεβαίωση</td></tr>
-<tr><td>Προγραμματισμός πρώτης επιχειρησιακής ανασκόπησης</td><td>Προς επιβεβαίωση</td></tr>
-</table>
-</section>
-
-<div class="notice"><strong>Επόμενο βήμα:</strong> Προγραμματισμός kickoff 60 λεπτών για επιβεβαίωση χρηστών, ρόλων, διαδικασίας πρόσβασης, ορίων δεδομένων, πρώτου δείγματος δεδομένων και πρώτης επιχειρησιακής ανασκόπησης.</div>
-
-<p class="footer">RAFTOP CPAP CARE Pro - Ελληνικό Client Portal v1.0. Το portal προορίζεται για ελεγχόμενο onboarding, επιχειρησιακή χρήση και προετοιμασία εμπορικής αξιοποίησης.</p>
+$GuideBlock = @'
 <!-- RAFTOP_APP_ACCESS_GUIDE_START -->
 <section class="app-access-panel" id="raftop-live-app-access">
   <h2>&#902;&#956;&#949;&#963;&#951; &#960;&#961;&#972;&#963;&#946;&#945;&#963;&#951; &#963;&#964;&#951;&#957; &#949;&#966;&#945;&#961;&#956;&#959;&#947;&#942;</h2>
   <p>
     &#928;&#945;&#964;&#942;&#963;&#964;&#949; &#964;&#959; &#960;&#945;&#961;&#945;&#954;&#940;&#964;&#969; &#954;&#959;&#965;&#956;&#960;&#943; &#947;&#953;&#945; &#957;&#945; &#945;&#957;&#959;&#943;&#958;&#949;&#953; &#951; live &#949;&#966;&#945;&#961;&#956;&#959;&#947;&#942; RAFTOP CPAP CARE Pro &#963;&#949; &#957;&#941;&#959; tab &#964;&#959;&#965; browser.
   </p>
-  <a class="app-primary-button" href="https://raftop-cpap-frontend.onrender.com/login" target="_blank" rel="noopener noreferrer">
+  <a class="app-primary-button" href="__APP_URL__" target="_blank" rel="noopener noreferrer">
     &#902;&#957;&#959;&#953;&#947;&#956;&#945; &#949;&#966;&#945;&#961;&#956;&#959;&#947;&#942;&#962;
   </a>
 
@@ -261,7 +230,166 @@ th{background:#f3f4f6}
 })();
 </script>
 <!-- RAFTOP_APP_ACCESS_GUIDE_END -->
-</main>
-</body>
-</html>
+'@
 
+$GuideBlock = $GuideBlock.Replace("__APP_URL__", $AppUrl)
+
+$Html = Insert-BeforeIgnoreCase $Html "</head>" $StyleBlock
+$Html = Insert-BeforeIgnoreCase $Html "</main>" $GuideBlock
+
+Set-Content -Path $HtmlPath -Value $Html -Encoding UTF8
+
+$HtmlCheck = Read-FileSafe $HtmlPath
+
+if (ContainsText $HtmlCheck $AppUrl) {
+    Add-Result "App URL exists in index.html" "PASS" $AppUrl
+} else {
+    Add-Result "App URL exists in index.html" "FAIL" "App URL missing."
+}
+
+if (ContainsText $HtmlCheck "RAFTOP_APP_ACCESS_GUIDE_START") {
+    Add-Result "App guide block exists" "PASS" "Marker found."
+} else {
+    Add-Result "App guide block exists" "FAIL" "Marker missing."
+}
+
+if (ContainsText $HtmlCheck "raftopShowGuide") {
+    Add-Result "Interactive button guide JS exists" "PASS" "Function found."
+} else {
+    Add-Result "Interactive button guide JS exists" "FAIL" "Function missing."
+}
+
+$ButtonMatches = [regex]::Matches($HtmlCheck, 'class="app-guide-button"')
+if ($ButtonMatches.Count -ge 10) {
+    Add-Result "App guide button count" "PASS" ("Buttons found: " + $ButtonMatches.Count)
+} else {
+    Add-Result "App guide button count" "FAIL" ("Buttons found: " + $ButtonMatches.Count)
+}
+
+if (ContainsText $HtmlCheck "href=`"$AppUrl`"") {
+    Add-Result "External app href exists" "PASS" "Live app link found."
+} else {
+    Add-Result "External app href exists" "FAIL" "Live app href missing."
+}
+
+# Regenerate PDF
+if (Test-Path $PdfPath) {
+    Remove-Item $PdfPath -Force
+}
+
+$EdgeCandidates = @(
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+)
+
+$EdgeExe = $null
+foreach ($Candidate in $EdgeCandidates) {
+    if (Test-Path $Candidate) {
+        $EdgeExe = $Candidate
+        break
+    }
+}
+
+if ($null -ne $EdgeExe) {
+    $HtmlUri = (New-Object System.Uri($HtmlPath)).AbsoluteUri
+    & $EdgeExe --headless --disable-gpu --print-to-pdf="$PdfPath" "$HtmlUri" | Out-Null
+
+    if (Test-Path $PdfPath) {
+        $PdfItem = Get-Item $PdfPath
+        if ($PdfItem.Length -gt 1000) {
+            Add-Result "Updated Greek portal PDF generated" "PASS" ("PDF size bytes: " + $PdfItem.Length)
+        } else {
+            Add-Result "Updated Greek portal PDF generated" "WARN" "PDF exists but size is small."
+        }
+    } else {
+        Add-Result "Updated Greek portal PDF generated" "WARN" "PDF was not created."
+    }
+} else {
+    Add-Result "Updated Greek portal PDF generated" "WARN" "Microsoft Edge not found."
+}
+
+# Recreate ZIP
+if (Test-Path $ZipPath) {
+    Remove-Item $ZipPath -Force
+}
+
+Compress-Archive -Path (Join-Path $PortalDir "*") -DestinationPath $ZipPath -Force
+
+if (Test-Path $ZipPath) {
+    Add-Result "Updated Greek portal ZIP created" "PASS" $ZipPath
+} else {
+    Add-Result "Updated Greek portal ZIP created" "FAIL" $ZipPath
+}
+
+# Inspect ZIP entries
+if (Test-Path $ZipPath) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $Zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+        $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName.Replace("\", "/") }
+        $Zip.Dispose()
+
+        if ($ZipEntries -contains "index.html") {
+            Add-Result "ZIP contains index.html" "PASS" "Entry found."
+        } else {
+            Add-Result "ZIP contains index.html" "FAIL" "Entry missing."
+        }
+
+        if ($ZipEntries -contains "RAFTOP_CLIENT_PORTAL_BUYER_CLEAN_EL_v1.0.pdf") {
+            Add-Result "ZIP contains PDF" "PASS" "Entry found."
+        } else {
+            Add-Result "ZIP contains PDF" "FAIL" "Entry missing."
+        }
+    } catch {
+        Add-Result "ZIP inspection" "FAIL" ("Could not inspect ZIP: " + $_.Exception.Message)
+    }
+}
+
+Add-Content -Path $ReportPath -Value "------------------------------------------------------------" -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("PASS_COUNT: " + $script:PassCount) -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("WARN_COUNT: " + $script:WarnCount) -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("FAIL_COUNT: " + $script:FailCount) -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+
+if ($script:FailCount -gt 0) {
+    $FinalStatus = "PHASE71_APP_LINK_BUTTON_GUIDE_GREEK_PORTAL_FAILED"
+    $ExitCode = 1
+} elseif ($script:WarnCount -gt 0) {
+    $FinalStatus = "PHASE71_APP_LINK_BUTTON_GUIDE_GREEK_PORTAL_READY_WITH_WARNINGS"
+    $ExitCode = 0
+} else {
+    $FinalStatus = "PHASE71_APP_LINK_BUTTON_GUIDE_GREEK_PORTAL_READY"
+    $ExitCode = 0
+}
+
+Add-Content -Path $ReportPath -Value ("FINAL STATUS: " + $FinalStatus) -Encoding UTF8
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "RAFTOP CPAP CARE Pro - Phase 71 App Link and Greek Button Guide"
+Write-Host "============================================================"
+Write-Host ""
+Write-Host "App URL:"
+Write-Host $AppUrl
+Write-Host ""
+Write-Host "Portal ZIP:"
+Write-Host $ZipPath
+Write-Host ""
+Write-Host "Portal HTML:"
+Write-Host $HtmlPath
+Write-Host ""
+Write-Host "Portal PDF:"
+Write-Host $PdfPath
+Write-Host ""
+Write-Host "Report created:"
+Write-Host $ReportPath
+Write-Host ""
+Write-Host ("PASS_COUNT: " + $script:PassCount)
+Write-Host ("WARN_COUNT: " + $script:WarnCount)
+Write-Host ("FAIL_COUNT: " + $script:FailCount)
+Write-Host ""
+Write-Host ("FINAL STATUS: " + $FinalStatus)
+Write-Host ""
+
+exit $ExitCode
