@@ -202,7 +202,40 @@ button.active {
     </p>
   </section>
 
-  <section class="grid">
+  <!-- PHASE75_MAPPING_BLOCK_START -->
+<section class="compare-box" id="airview-sleephq-80hours-map">
+  <h2>&#935;&#940;&#961;&#964;&#951;&#962; &#945;&#957;&#964;&#953;&#963;&#964;&#959;&#943;&#967;&#953;&#963;&#951;&#962;: AirView / SleepHQ / 80 Hours Compliance</h2>
+  <p>
+    &#913;&#965;&#964;&#942; &#951; &#949;&#957;&#972;&#964;&#951;&#964;&#945; &#948;&#949;&#943;&#967;&#957;&#949;&#953; &#963;&#949; &#945;&#960;&#955;&#942; &#947;&#955;&#974;&#963;&#963;&#945; &#960;&#959;&#953;&#959; &#956;&#941;&#961;&#959;&#962; &#964;&#951;&#962; RAFTOP CPAP CARE Pro
+    &#954;&#945;&#955;&#973;&#960;&#964;&#949;&#953; &#955;&#959;&#947;&#953;&#954;&#942; AirView-like, &#960;&#959;&#953;&#959; &#954;&#945;&#955;&#973;&#960;&#964;&#949;&#953; SleepHQ-style &#945;&#957;&#940;&#955;&#965;&#963;&#951; &#954;&#945;&#953; &#960;&#959;&#953;&#959; &#949;&#955;&#941;&#947;&#967;&#949;&#953; &#964;&#951;&#957; &#954;&#961;&#943;&#963;&#953;&#956;&#951;
+    &#963;&#965;&#956;&#956;&#972;&#961;&#966;&#969;&#963;&#951; 80 &#969;&#961;&#974;&#957; / &#956;&#942;&#957;&#945;.
+  </p>
+
+  <div class="metrics">
+    <div class="metric">
+      <small>AirView-like</small>
+      <strong>ATLAS</strong>
+      <p>&#922;&#959;&#965;&#956;&#960;&#943;: <b>ATLAS / AirView-like Monitoring</b></p>
+    </div>
+    <div class="metric">
+      <small>SleepHQ-style</small>
+      <strong>CPAP Analysis</strong>
+      <p>&#922;&#959;&#965;&#956;&#960;&#943;: <b>SleepHQ-style CPAP Analysis</b></p>
+    </div>
+    <div class="metric">
+      <small>Compliance</small>
+      <strong>80h / month</strong>
+      <p>&#922;&#959;&#965;&#956;&#960;&#943;: <b>80 Hours Compliance</b></p>
+    </div>
+    <div class="metric">
+      <small>Rescue</small>
+      <strong>Follow-up</strong>
+      <p>&#922;&#959;&#965;&#956;&#960;&#943;: <b>Compliance Rescue</b></p>
+    </div>
+  </div>
+</section>
+<!-- PHASE75_MAPPING_BLOCK_END -->
+<section class="grid">
     <div class="panel">
       <h2>&#917;&#957;&#972;&#964;&#951;&#964;&#949;&#962; &#949;&#966;&#945;&#961;&#956;&#959;&#947;&#942;&#962;</h2>
       <div class="buttons">
@@ -210,7 +243,11 @@ button.active {
         <button onclick="showGuide('patients', this)">&#913;&#963;&#952;&#949;&#957;&#949;&#943;&#962;</button>
         <button onclick="showGuide('devices', this)">&#931;&#965;&#963;&#954;&#949;&#965;&#941;&#962; CPAP</button>
         <button onclick="showGuide('signals', this)">&#931;&#942;&#956;&#945;&#964;&#945; &#913;&#963;&#952;&#949;&#957;&#974;&#957;</button>
-        <button onclick="showGuide('atlas', this)">ATLAS</button>
+        <button onclick="showGuide('atlas', this)">ATLAS / AirView-like Monitoring</button>
+        <button onclick="showGuide('airviewOperational', this)">AirView-like Patient Monitoring</button>
+        <button onclick="showGuide('sleephqAnalysis', this)">SleepHQ-style CPAP Analysis</button>
+        <button onclick="showGuide('compliance80h', this)">80 Hours Compliance</button>
+        <button onclick="showGuide('complianceRescue', this)">Compliance Rescue</button>
         <button onclick="showGuide('airview', this)">AirView-like &#949;&#953;&#954;&#972;&#957;&#945;</button>
         <button onclick="showGuide('sleephq', this)">SleepHQ-like &#945;&#957;&#940;&#955;&#965;&#963;&#951;</button>
         <button onclick="showGuide('action', this)">&#922;&#941;&#957;&#964;&#961;&#959; &#916;&#961;&#940;&#963;&#951;&#962;</button>
@@ -366,5 +403,94 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 </script>
 
+<!-- PHASE75_GUIDE_SCRIPT_START -->
+<script>
+(function () {
+  const phase75Items = {
+    atlas: {
+      title: "ATLAS / AirView-like Monitoring",
+      body: `
+        <p><b>Ξ¤ΞΏ ATLAS ΞµΞ―Ξ½Ξ±ΞΉ Ο„ΞΏ ΟƒΞ·ΞΌΞµΞ―ΞΏ Ο€ΞΏΟ… Ξ»ΞµΞΉΟ„ΞΏΟ…ΟΞ³ΞµΞ― ΟƒΞ±Ξ½ AirView-like operational monitoring layer Ξ³ΞΉΞ± Ο„Ξ· Ξ΅Ξ±Ο…Ο„ΟΟ€ΞΏΟ…Ξ»ΞΏΟ‚.</b></p>
+        <ul>
+          <li>Ξ”ΞµΞ―Ο‡Ξ½ΞµΞΉ Ο€ΞΏΞΉΞΏΞΉ CPAP Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ Ο‡ΟΞµΞΉΞ¬Ξ¶ΞΏΞ½Ο„Ξ±ΞΉ Ο€ΟΞΏΟƒΞΏΟ‡Ξ®.</li>
+          <li>Ξ’Ξ¬Ξ¶ΞµΞΉ Ο€ΟΞΏΟ„ΞµΟΞ±ΞΉΟΟ„Ξ·Ο„Ξ± ΟƒΞµ no-data, Ο‡Ξ±ΞΌΞ·Ξ»Ξ® Ο‡ΟΞ®ΟƒΞ·, compliance risk ΞΊΞ±ΞΉ follow-up Ξ±Ξ½Ξ¬Ξ³ΞΊΞµΟ‚.</li>
+          <li>Ξ— Ξ΄ΞΉΞ±Ο†ΞΏΟΞ¬ ΞµΞ―Ξ½Ξ±ΞΉ ΟΟ„ΞΉ Ξ΄ΞµΞ½ ΞΌΞ­Ξ½ΞµΞΉ ΞΌΟΞ½ΞΏ ΟƒΟ„Ξ·Ξ½ Ο€ΟΞΏΞ²ΞΏΞ»Ξ® Ξ΄ΞµΞ΄ΞΏΞΌΞ­Ξ½Ο‰Ξ½. ΞΞµΟ„Ξ±Ο„ΟΞ­Ο€ΞµΞΉ Ο„Ξ·Ξ½ ΞµΞΉΞΊΟΞ½Ξ± ΟƒΞµ ΞµΞ½Ξ­ΟΞ³ΞµΞΉΞ±.</li>
+        </ul>
+        <span class="badge">AirView-like monitoring</span><span class="badge">ATLAS priority</span><span class="badge">Follow-up action</span>`
+    },
+    airviewOperational: {
+      title: "AirView-like Patient Monitoring",
+      body: `
+        <p>Ξ‘Ο…Ο„Ο Ο„ΞΏ ΞΊΞΏΟ…ΞΌΟ€Ξ― ΞµΞΎΞ·Ξ³ΞµΞ― Ο„Ξ·Ξ½ AirView-like Ο€Ξ»ΞµΟ…ΟΞ¬ Ο„Ξ·Ο‚ Ο€Ξ»Ξ±Ο„Ο†ΟΟΞΌΞ±Ο‚.</p>
+        <ul>
+          <li>ΞΞµΞ½Ο„ΟΞΉΞΊΞ® ΞµΞΉΞΊΟΞ½Ξ± Ξ±ΟƒΞΈΞµΞ½ΟΞ½ CPAP.</li>
+          <li>ΞΟΞ±Ο„ΟΟ„Ξ·Ο„Ξ± ΟƒΞµ ΟƒΟ…ΟƒΞΊΞµΟ…Ξ­Ο‚, Ξ΄ΞµΞ΄ΞΏΞΌΞ­Ξ½Ξ± ΞΊΞ±ΞΉ Ξ±Ο€ΞΏΟ…ΟƒΞ―Ξ± Ξ΄ΞµΞ΄ΞΏΞΌΞ­Ξ½Ο‰Ξ½.</li>
+          <li>Ξ•Ξ½Ο„ΞΏΟ€ΞΉΟƒΞΌΟΟ‚ Ξ±ΟƒΞΈΞµΞ½ΟΞ½ Ο€ΞΏΟ… Ο‡ΟΞµΞΉΞ¬Ξ¶ΞΏΞ½Ο„Ξ±ΞΉ Ξ΄ΞΉΞ±Ο‡ΞµΞ―ΟΞΉΟƒΞ·.</li>
+          <li>Ξ§ΟΞ®ΟƒΞΉΞΌΞΏ Ξ³ΞΉΞ± ΞµΟ„Ξ±ΞΉΟΞµΞ―Ξ± ΞΌΞµ ΞΌΞµΞ³Ξ¬Ξ»ΞΏ CPAP Ο‡Ξ±ΟΟ„ΞΏΟ†Ο…Ξ»Ξ¬ΞΊΞΉΞΏ.</li>
+        </ul>
+        <p><b>ΞΞµ Ξ±Ο€Ξ»Ξ¬ Ξ»ΟΞ³ΞΉΞ±:</b> ΞµΞ΄Ο Ξ· Ξ΅Ξ±Ο…Ο„ΟΟ€ΞΏΟ…Ξ»ΞΏΟ‚ Ξ²Ξ»Ξ­Ο€ΞµΞΉ ΞΏΟΞ³Ξ±Ξ½Ο‰ΞΌΞ­Ξ½Ξ± Ο„ΞΏ CPAP portfolio Ο„Ξ·Ο‚.</p>
+        <span class="badge">Patient management</span><span class="badge">Device visibility</span>`
+    },
+    sleephqAnalysis: {
+      title: "SleepHQ-style CPAP Analysis",
+      body: `
+        <p>Ξ‘Ο…Ο„Ο Ο„ΞΏ ΞΊΞΏΟ…ΞΌΟ€Ξ― Ξ΄ΞµΞ―Ο‡Ξ½ΞµΞΉ Ο„Ξ· SleepHQ-style Ξ»ΞΏΞ³ΞΉΞΊΞ®: ΟΟ‡ΞΉ Ξ±Ο€Ξ»ΟΟ‚ Ξ»Ξ―ΟƒΟ„Ξ± Ξ±ΟƒΞΈΞµΞ½ΟΞ½, Ξ±Ξ»Ξ»Ξ¬ ΞΊΞ±Ο„Ξ±Ξ½ΟΞ·ΟƒΞ· Ο„Ξ·Ο‚ Ο€ΞΏΟΞµΞ―Ξ±Ο‚ CPAP Ο‡ΟΞ®ΟƒΞ·Ο‚.</p>
+        <ul>
+          <li>Ξ ΟΟ‚ Ο€Ξ·Ξ³Ξ±Ξ―Ξ½ΞµΞΉ Ξ· Ο‡ΟΞ®ΟƒΞ· CPAP ΞΌΞµ Ο„ΞΏΞ½ Ο‡ΟΟΞ½ΞΏ.</li>
+          <li>Ξ ΞΏΟ ΞµΞΌΟ†Ξ±Ξ½Ξ―Ξ¶ΞµΟ„Ξ±ΞΉ Ο€Ο„ΟΟƒΞ· ΟƒΟ„Ξ· Ο‡ΟΞ®ΟƒΞ·.</li>
+          <li>Ξ ΞΏΟ Ο…Ο€Ξ¬ΟΟ‡ΞΏΟ…Ξ½ ΞµΞ½Ξ΄ΞµΞ―ΞΎΞµΞΉΟ‚ Ο€ΞΏΟ… Ο‡ΟΞµΞΉΞ¬Ξ¶ΞΏΞ½Ο„Ξ±ΞΉ follow-up.</li>
+          <li>Ξ ΟΟ‚ ΞΌΟ€ΞΏΟΞµΞ― Ξ½Ξ± ΞµΞΎΞ·Ξ³Ξ·ΞΈΞµΞ― ΞΊΞ±Ξ»ΟΟ„ΞµΟΞ± Ξ· Ο€ΞΏΟΞµΞ―Ξ± ΞΈΞµΟΞ±Ο€ΞµΞ―Ξ±Ο‚.</li>
+        </ul>
+        <p><b>ΞΞµ Ξ±Ο€Ξ»Ξ¬ Ξ»ΟΞ³ΞΉΞ±:</b> ΞµΞ΄Ο Ξ· Ξ΅Ξ±Ο…Ο„ΟΟ€ΞΏΟ…Ξ»ΞΏΟ‚ Ξ΄ΞµΞ½ Ξ²Ξ»Ξ­Ο€ΞµΞΉ ΞΌΟΞ½ΞΏ Ξ±Ξ½ Ο…Ο€Ξ¬ΟΟ‡ΞΏΟ…Ξ½ Ξ΄ΞµΞ΄ΞΏΞΌΞ­Ξ½Ξ±. Ξ’Ξ»Ξ­Ο€ΞµΞΉ Ο„ΞΉ ΟƒΞ·ΞΌΞ±Ξ―Ξ½ΞΏΟ…Ξ½ ΞµΟ€ΞΉΟ‡ΞµΞΉΟΞ·ΟƒΞΉΞ±ΞΊΞ¬.</p>
+        <span class="badge">CPAP trend insight</span><span class="badge">SleepHQ-style analysis</span>`
+    },
+    compliance80h: {
+      title: "80 Hours Compliance",
+      body: `
+        <p>Ξ‘Ο…Ο„Ο Ο„ΞΏ ΞΊΞΏΟ…ΞΌΟ€Ξ― Ξ΄ΞµΞ―Ο‡Ξ½ΞµΞΉ Ο„ΞΏΞ½ Ξ­Ξ»ΞµΞ³Ο‡ΞΏ ΟƒΟ…ΞΌΞΌΟΟΟ†Ο‰ΟƒΞ·Ο‚ ΞΌΞµ Ξ²Ξ¬ΟƒΞ· Ο„ΞΏΞ½ ΞΊΟΞ―ΟƒΞΉΞΌΞΏ ΟƒΟ„ΟΟ‡ΞΏ 80 Ο‰ΟΟΞ½ Ο‡ΟΞ®ΟƒΞ·Ο‚ CPAP Ξ±Ξ½Ξ¬ ΞΌΞ®Ξ½Ξ±.</p>
+        <ul>
+          <li>Ξ ΞΏΞΉΞΏΞΉ Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ Ο€Ξ»Ξ·ΟƒΞΉΞ¬Ξ¶ΞΏΟ…Ξ½ Ο„ΞΏΞ½ ΟƒΟ„ΟΟ‡ΞΏ.</li>
+          <li>Ξ ΞΏΞΉΞΏΞΉ Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ ΞµΞ―Ξ½Ξ±ΞΉ ΞΊΞ¬Ο„Ο‰ Ξ±Ο€Ο Ο„ΞΏΞ½ ΟƒΟ„ΟΟ‡ΞΏ.</li>
+          <li>Ξ ΞΏΞΉΞΏΞΉ Ο‡ΟΞµΞΉΞ¬Ξ¶ΞΏΞ½Ο„Ξ±ΞΉ Ξ¬ΞΌΞµΟƒΞ· ΞµΟ€ΞΉΞΊΞΏΞΉΞ½Ο‰Ξ½Ξ―Ξ± Ο€ΟΞΉΞ½ Ο‡Ξ±ΞΈΞµΞ― Ξ· ΟƒΟ…ΞΌΞΌΟΟΟ†Ο‰ΟƒΞ·.</li>
+          <li>Ξ ΞΏΞΉΞΏΞΉ Ο€ΟΞ­Ο€ΞµΞΉ Ξ½Ξ± ΞΌΟ€ΞΏΟ…Ξ½ ΟƒΞµ ATLAS priority / follow-up.</li>
+        </ul>
+        <p><b>ΞΞµ Ξ±Ο€Ξ»Ξ¬ Ξ»ΟΞ³ΞΉΞ±:</b> ΞµΞ΄Ο Ξ· Ξ΅Ξ±Ο…Ο„ΟΟ€ΞΏΟ…Ξ»ΞΏΟ‚ Ξ²Ξ»Ξ­Ο€ΞµΞΉ Ο€ΞΏΞΉΞΏΞΉ Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ ΞΊΞΉΞ½Ξ΄Ο…Ξ½ΞµΟΞΏΟ…Ξ½ Ξ½Ξ± ΞΌΞ· ΟƒΟ…ΞΌΟ€Ξ»Ξ·ΟΟΟƒΞΏΟ…Ξ½ Ο„ΞΉΟ‚ 80 ΟΟΞµΟ‚.</p>
+        <span class="badge">80h/month rule</span><span class="badge">Compliance risk</span>`
+    },
+    complianceRescue: {
+      title: "Compliance Rescue",
+      body: `
+        <p>Ξ¤ΞΏ Compliance Rescue Ξ΄ΞµΞ―Ο‡Ξ½ΞµΞΉ Ο€ΞΏΞΉΞΏΟ…Ο‚ Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ ΞΌΟ€ΞΏΟΞµΞ― Ξ½Ξ± Ο€ΟΞΏΞ»Ξ¬Ξ²ΞµΞΉ Ξ· ΞΏΞΌΞ¬Ξ΄Ξ± ΞΌΞµ ΟƒΟ‰ΟƒΟ„Ο follow-up.</p>
+        <ul>
+          <li>Ξ‘ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ ΞΌΞµ Ο€Ο„ΟΟƒΞ· Ο‡ΟΞ®ΟƒΞ·Ο‚ Ξ±Ξ»Ξ»Ξ¬ Ξ±ΞΊΟΞΌΞ· Ξ±Ξ½Ξ±ΟƒΟ„ΟΞ­ΟΞΉΞΌΞ· Ο€ΞΏΟΞµΞ―Ξ±.</li>
+          <li>Ξ‘ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ Ο€ΞΏΟ… Ο‡ΟΞµΞΉΞ¬Ξ¶ΞΏΞ½Ο„Ξ±ΞΉ Ο„Ξ·Ξ»ΞµΟ†ΟΞ½Ξ·ΞΌΞ±, ΞΏΞ΄Ξ·Ξ³Ξ―Ξ± Ξ® Ξ­Ξ»ΞµΞ³Ο‡ΞΏ ΟƒΟ…ΟƒΞΊΞµΟ…Ξ®Ο‚.</li>
+          <li>Ξ ΞµΟΞΉΟ€Ο„ΟΟƒΞµΞΉΟ‚ Ο€ΞΏΟ… ΞΌΟ€ΞΏΟΞΏΟΞ½ Ξ½Ξ± Ξ²ΞµΞ»Ο„ΞΉΟ‰ΞΈΞΏΟΞ½ Ο€ΟΞΉΞ½ Ο‡Ξ±ΞΈΞµΞ― ΞΏ ΟƒΟ„ΟΟ‡ΞΏΟ‚ ΟƒΟ…ΞΌΞΌΟΟΟ†Ο‰ΟƒΞ·Ο‚.</li>
+        </ul>
+        <p><b>ΞΞµ Ξ±Ο€Ξ»Ξ¬ Ξ»ΟΞ³ΞΉΞ±:</b> ΞµΞ΄Ο Ξ· Ο€Ξ»Ξ±Ο„Ο†ΟΟΞΌΞ± Ξ΄ΞµΞ―Ο‡Ξ½ΞµΞΉ Ο€ΞΏΟ Ξ±ΞΎΞ―Ξ¶ΞµΞΉ Ξ½Ξ± Ξ΄ΟΞ¬ΟƒΞµΞΉ Ο€ΟΟΟ„Ξ± Ξ· ΞΏΞΌΞ¬Ξ΄Ξ±.</p>
+        <span class="badge">Rescue opportunity</span><span class="badge">Follow-up priority</span>`
+    }
+  };
+
+  const originalShowGuide = window.showGuide;
+
+  window.showGuide = function (key, btn) {
+    if (phase75Items[key]) {
+      const output = document.getElementById("output");
+      document.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+      if (btn) btn.classList.add("active");
+      if (output) {
+        output.innerHTML = `<h2>${phase75Items[key].title}</h2>${phase75Items[key].body}`;
+      }
+      return;
+    }
+
+    if (typeof originalShowGuide === "function") {
+      return originalShowGuide(key, btn);
+    }
+  };
+})();
+</script>
+<!-- PHASE75_GUIDE_SCRIPT_END -->
 </body>
 </html>
+
