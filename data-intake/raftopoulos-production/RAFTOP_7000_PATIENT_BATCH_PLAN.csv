@@ -1,0 +1,5 @@
+﻿"stage","batch_size","start_row","end_row","purpose"
+"stage_1","100","1","100","initial controlled import check"
+"stage_2","500","101","500","expanded validation"
+"stage_3","2000","501","2000","load and reporting validation"
+"stage_4","7000","2001","7000","full controlled production rollout"
