@@ -1,0 +1,5 @@
+﻿stage,batch_size,start_row,end_row,execution_mode,allowed_after,required_gate
+stage_1,100,1,100,dry_run_or_controlled_import,phase81_validation,stage_1_signoff
+stage_2,500,101,500,controlled_import,stage_1_signoff,stage_2_signoff
+stage_3,2000,501,2000,controlled_import,stage_2_signoff,stage_3_signoff
+stage_4,7000,2001,7000,controlled_import,stage_3_signoff,stage_4_signoff
