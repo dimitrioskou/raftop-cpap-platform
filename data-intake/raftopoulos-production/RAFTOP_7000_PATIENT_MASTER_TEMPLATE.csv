@@ -1,0 +1,1 @@
+﻿tenant_id,patient_external_id,patient_code,device_serial,device_model,setup_date,month_start,last_data_date,month_usage_hours,usage_hours_30d,days_used_30d,ahi_avg_30d,leak_avg_30d,doctor_external_id,branch_code,consent_basis,data_source

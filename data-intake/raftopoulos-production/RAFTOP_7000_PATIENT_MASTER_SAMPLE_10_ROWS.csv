@@ -1,0 +1,11 @@
+﻿tenant_id,patient_external_id,patient_code,device_serial,device_model,setup_date,month_start,last_data_date,month_usage_hours,usage_hours_30d,days_used_30d,ahi_avg_30d,leak_avg_30d,doctor_external_id,branch_code,consent_basis,data_source
+raftopoulos-production,RP-PAT-000001,PAT-000001,CPAP-SN-000001,AirSense 10,2026-01-10,2026-06-01,2026-06-03,92.5,88.0,26,3.1,12.4,DOC-001,ATHENS,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000002,PAT-000002,CPAP-SN-000002,AirSense 11,2026-02-12,2026-06-01,2026-06-02,65.0,62.0,20,6.2,18.9,DOC-001,ATHENS,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000003,PAT-000003,CPAP-SN-000003,Lumis,2026-03-05,2026-06-01,2026-05-20,0,0,0,0,0,DOC-002,PIRAEUS,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000004,PAT-000004,CPAP-SN-000004,AirSense 10,2025-12-18,2026-06-01,2026-06-03,110.2,105.1,29,2.4,8.5,DOC-003,ATHENS,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000005,PAT-000005,CPAP-SN-000005,AirSense 11,2026-04-02,2026-06-01,2026-06-01,78.5,74.0,24,4.8,14.2,DOC-003,ATHENS,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000006,PAT-000006,CPAP-SN-000006,AirSense 10,2026-01-22,2026-06-01,2026-06-03,154.0,149.0,30,1.9,6.0,DOC-004,THESSALONIKI,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000007,PAT-000007,CPAP-SN-000007,AirSense 11,2026-05-01,2026-06-01,2026-06-03,33.0,30.0,11,8.2,22.0,DOC-004,THESSALONIKI,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000008,PAT-000008,CPAP-SN-000008,AirSense 10,2026-02-10,2026-06-01,2026-05-28,82.0,80.5,25,3.8,11.7,DOC-005,CRETE,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000009,PAT-000009,CPAP-SN-000009,AirSense 11,2026-03-14,2026-06-01,2026-06-03,120.0,116.0,28,2.1,9.2,DOC-005,CRETE,contract,AirView_CSV
+raftopoulos-production,RP-PAT-000010,PAT-000010,CPAP-SN-000010,AirSense 10,2025-11-30,2026-06-01,2026-06-03,55.0,52.0,18,7.5,19.3,DOC-006,PATRAS,contract,AirView_CSV
