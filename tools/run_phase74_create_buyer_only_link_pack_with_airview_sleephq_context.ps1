@@ -1,4 +1,76 @@
-﻿<!doctype html>
+﻿# RAFTOP CPAP CARE Pro
+# Phase 74 - Buyer-Only Link Pack with AirView / SleepHQ context
+# ASCII-safe version. Greek text is rendered through HTML entities.
+# Creates clean buyer-only public page + clean ZIP/PDF package.
+# No internal sales notes, no login URL, no technical fallback, no source code exposure.
+
+$ErrorActionPreference = "Stop"
+
+$Root = "C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE"
+$ReportsDir = Join-Path $Root "reports"
+
+$FrontendPublicDir = Join-Path $Root "enterprise-frontend\public"
+$BuyerViewDir = Join-Path $FrontendPublicDir "raftopoulos-buyer-view"
+$BuyerViewIndex = Join-Path $BuyerViewDir "index.html"
+
+$DeliveryRoot = Join-Path $Root "client-delivery"
+$PackDir = Join-Path $DeliveryRoot "RAFTOP_CLIENT_BUYER_ONLY_VIEW_EL_v1.0"
+$PackIndex = Join-Path $PackDir "index.html"
+$PackPdf = Join-Path $PackDir "RAFTOP_CLIENT_BUYER_ONLY_VIEW_EL_v1.0.pdf"
+$PackZip = Join-Path $DeliveryRoot "RAFTOP_CLIENT_BUYER_ONLY_VIEW_EL_v1.0.zip"
+
+$BuyerUrl = "https://raftop-cpap-frontend.onrender.com/raftopoulos-buyer-view/"
+$OldLoginUrl = "https://raftop-cpap-frontend.onrender.com/login"
+
+New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
+New-Item -ItemType Directory -Path $BuyerViewDir -Force | Out-Null
+New-Item -ItemType Directory -Path $DeliveryRoot -Force | Out-Null
+
+if (Test-Path $PackDir) { Remove-Item $PackDir -Recurse -Force }
+if (Test-Path $PackZip) { Remove-Item $PackZip -Force }
+
+New-Item -ItemType Directory -Path $PackDir -Force | Out-Null
+
+$Timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$ReportPath = Join-Path $ReportsDir ("phase74_buyer_only_link_pack_airview_sleephq_" + $Timestamp + ".md")
+
+$script:PassCount = 0
+$script:WarnCount = 0
+$script:FailCount = 0
+
+function Add-Result {
+    param([string]$Name, [string]$Status, [string]$Details)
+
+    if ($Status -eq "PASS") { $script:PassCount++ }
+    elseif ($Status -eq "WARN") { $script:WarnCount++ }
+    else { $script:FailCount++ }
+
+    Add-Content -Path $ReportPath -Value ("CHECK: " + $Name) -Encoding UTF8
+    Add-Content -Path $ReportPath -Value ("STATUS: " + $Status) -Encoding UTF8
+    Add-Content -Path $ReportPath -Value ("DETAILS: " + $Details) -Encoding UTF8
+    Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+
+    Write-Host ($Status + " - " + $Name)
+}
+
+function ContainsText {
+    param([string]$Content, [string]$Needle)
+
+    if ([string]::IsNullOrWhiteSpace($Content)) { return $false }
+    return $Content.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+Set-Content -Path $ReportPath -Value "# RAFTOP CPAP CARE Pro - Phase 74 Buyer-Only Link Pack with AirView/SleepHQ Context" -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("Generated: " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")) -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+
+Write-Host ""
+Write-Host "Running RAFTOP Phase 74 Buyer-Only Link Pack..."
+Write-Host ""
+
+$Html = @'
+<!doctype html>
 <html lang="el">
 <head>
 <meta charset="utf-8">
@@ -368,3 +440,174 @@ window.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+'@
+
+Set-Content -Path $BuyerViewIndex -Value $Html -Encoding UTF8
+Set-Content -Path $PackIndex -Value $Html -Encoding UTF8
+
+# PDF generation using Microsoft Edge
+$EdgeCandidates = @(
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+)
+
+$EdgeExe = $null
+foreach ($Candidate in $EdgeCandidates) {
+    if (Test-Path $Candidate) {
+        $EdgeExe = $Candidate
+        break
+    }
+}
+
+if ($null -ne $EdgeExe) {
+    $HtmlUri = (New-Object System.Uri($PackIndex)).AbsoluteUri
+    & $EdgeExe --headless --disable-gpu --print-to-pdf="$PackPdf" "$HtmlUri" | Out-Null
+}
+
+if (Test-Path $PackPdf) {
+    $PdfItem = Get-Item $PackPdf
+    if ($PdfItem.Length -gt 1000) {
+        Add-Result "PDF generated" "PASS" ("PDF size bytes: " + $PdfItem.Length)
+    } else {
+        Add-Result "PDF generated" "WARN" "PDF exists but size is small."
+    }
+} else {
+    Add-Result "PDF generated" "WARN" "PDF was not created."
+}
+
+Compress-Archive -Path (Join-Path $PackDir "*") -DestinationPath $PackZip -Force
+
+$PublicHtmlCheck = Get-Content -Path $BuyerViewIndex -Raw -Encoding UTF8
+$PackHtmlCheck = Get-Content -Path $PackIndex -Raw -Encoding UTF8
+
+if (Test-Path $BuyerViewIndex) { Add-Result "Public buyer view created" "PASS" $BuyerViewIndex } else { Add-Result "Public buyer view created" "FAIL" $BuyerViewIndex }
+if (Test-Path $PackIndex) { Add-Result "ZIP pack index created" "PASS" $PackIndex } else { Add-Result "ZIP pack index created" "FAIL" $PackIndex }
+if (Test-Path $PackZip) { Add-Result "Buyer-only ZIP created" "PASS" $PackZip } else { Add-Result "Buyer-only ZIP created" "FAIL" $PackZip }
+
+$RequiredMarkers = @(
+    "REQUIRED_MARKER: PHASE74_BUYER_ONLY_LINK_PACK",
+    "REQUIRED_MARKER: BUYER_ONLY_VIEW",
+    "REQUIRED_MARKER: AIRVIEW_CONTEXT",
+    "REQUIRED_MARKER: SLEEPHQ_CONTEXT",
+    "REQUIRED_MARKER: NO_INTERNAL_SALES_NOTES",
+    "REQUIRED_MARKER: NO_TECHNICAL_WARNINGS",
+    "https://raftop-cpap-frontend.onrender.com/raftopoulos-buyer-view/",
+    "AirView-like",
+    "SleepHQ-like",
+    "ATLAS",
+    "Doctor / Clinic View"
+)
+
+foreach ($Marker in $RequiredMarkers) {
+    if (ContainsText $PublicHtmlCheck $Marker) { Add-Result ("Public marker: " + $Marker) "PASS" "Marker found." } else { Add-Result ("Public marker: " + $Marker) "FAIL" "Marker missing." }
+    if (ContainsText $PackHtmlCheck $Marker) { Add-Result ("Pack marker: " + $Marker) "PASS" "Marker found." } else { Add-Result ("Pack marker: " + $Marker) "FAIL" "Marker missing." }
+}
+
+$ForbiddenText = @(
+    "Executive Demo Script",
+    "Pilot Proposal",
+    "Decision Launcher",
+    "Objections",
+    "Bearer token",
+    "fallback active",
+    "endpoint",
+    "Authorization",
+    "ChatGPT",
+    "do not give",
+    "do not send",
+    "GitHub secrets",
+    "Render secrets",
+    ".env",
+    "https://raftop-cpap-frontend.onrender.com/login"
+)
+
+foreach ($Text in $ForbiddenText) {
+    if (ContainsText $PublicHtmlCheck $Text) { Add-Result ("Public forbidden text absent: " + $Text) "FAIL" "Forbidden text found." } else { Add-Result ("Public forbidden text absent: " + $Text) "PASS" "Forbidden text absent." }
+    if (ContainsText $PackHtmlCheck $Text) { Add-Result ("Pack forbidden text absent: " + $Text) "FAIL" "Forbidden text found." } else { Add-Result ("Pack forbidden text absent: " + $Text) "PASS" "Forbidden text absent." }
+}
+
+# ZIP content inspection
+if (Test-Path $PackZip) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $Zip = [System.IO.Compression.ZipFile]::OpenRead($PackZip)
+        $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName.Replace("\", "/") }
+        $Zip.Dispose()
+
+        if ($ZipEntries -contains "index.html") { Add-Result "ZIP contains index.html" "PASS" "Entry found." } else { Add-Result "ZIP contains index.html" "FAIL" "Entry missing." }
+        if ($ZipEntries -contains "RAFTOP_CLIENT_BUYER_ONLY_VIEW_EL_v1.0.pdf") { Add-Result "ZIP contains PDF" "PASS" "Entry found." } else { Add-Result "ZIP contains PDF" "WARN" "PDF entry missing." }
+
+        $ForbiddenZipEntries = @(
+            "tools/",
+            "reports/",
+            "enterprise-backend/",
+            "enterprise-frontend/",
+            "node_modules/",
+            ".git/",
+            ".env"
+        )
+
+        foreach ($Forbidden in $ForbiddenZipEntries) {
+            $Matches = $ZipEntries | Where-Object { $_ -like ("*" + $Forbidden + "*") }
+            if ($Matches.Count -eq 0) {
+                Add-Result ("Forbidden ZIP content absent: " + $Forbidden) "PASS" "No matching ZIP entries."
+            } else {
+                Add-Result ("Forbidden ZIP content absent: " + $Forbidden) "FAIL" ("Found: " + ($Matches -join "; "))
+            }
+        }
+    } catch {
+        Add-Result "ZIP inspection" "FAIL" ("Could not inspect ZIP: " + $_.Exception.Message)
+    }
+}
+
+Add-Content -Path $ReportPath -Value "------------------------------------------------------------" -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("PASS_COUNT: " + $script:PassCount) -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("WARN_COUNT: " + $script:WarnCount) -Encoding UTF8
+Add-Content -Path $ReportPath -Value ("FAIL_COUNT: " + $script:FailCount) -Encoding UTF8
+Add-Content -Path $ReportPath -Value "" -Encoding UTF8
+
+if ($script:FailCount -gt 0) {
+    $FinalStatus = "PHASE74_BUYER_ONLY_LINK_PACK_AIRVIEW_SLEEPHQ_FAILED"
+    $ExitCode = 1
+} elseif ($script:WarnCount -gt 0) {
+    $FinalStatus = "PHASE74_BUYER_ONLY_LINK_PACK_AIRVIEW_SLEEPHQ_READY_WITH_WARNINGS"
+    $ExitCode = 0
+} else {
+    $FinalStatus = "PHASE74_BUYER_ONLY_LINK_PACK_AIRVIEW_SLEEPHQ_READY"
+    $ExitCode = 0
+}
+
+Add-Content -Path $ReportPath -Value ("FINAL STATUS: " + $FinalStatus) -Encoding UTF8
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "RAFTOP CPAP CARE Pro - Phase 74 Buyer-Only Link Pack"
+Write-Host "============================================================"
+Write-Host ""
+Write-Host "Public buyer URL after Render redeploy:"
+Write-Host $BuyerUrl
+Write-Host ""
+Write-Host "Public buyer local file:"
+Write-Host $BuyerViewIndex
+Write-Host ""
+Write-Host "Buyer-only ZIP:"
+Write-Host $PackZip
+Write-Host ""
+Write-Host "Buyer-only pack index:"
+Write-Host $PackIndex
+Write-Host ""
+Write-Host "Buyer-only PDF:"
+Write-Host $PackPdf
+Write-Host ""
+Write-Host "Report created:"
+Write-Host $ReportPath
+Write-Host ""
+Write-Host ("PASS_COUNT: " + $script:PassCount)
+Write-Host ("WARN_COUNT: " + $script:WarnCount)
+Write-Host ("FAIL_COUNT: " + $script:FailCount)
+Write-Host ""
+Write-Host ("FINAL STATUS: " + $FinalStatus)
+Write-Host ""
+
+exit $ExitCode
