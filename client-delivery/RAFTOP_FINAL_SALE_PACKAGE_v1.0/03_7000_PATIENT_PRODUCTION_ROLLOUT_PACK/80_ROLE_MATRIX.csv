@@ -1,0 +1,7 @@
+﻿role_code,role_name,owner,scope,allowed_actions,not_allowed
+platform_super_admin,Platform Super Admin,Dimitrios / Platform Owner,All tenants,System control; tenant activation; emergency lock; release control,Must not be shared with buyer
+tenant_admin,Raftopoulos Tenant Admin,Raftopoulos Management,Raftopoulos tenant only,Manage tenant users; view dashboards; approve rollout,No platform secrets; no source code
+operations_user,Operations / Follow-up User,Raftopoulos Team,Assigned tenant patients,View patients; manage tasks; add follow-up notes,No tenant billing; no platform settings
+viewer,Management Viewer,Raftopoulos Management,Read-only tenant dashboard,View reports and executive dashboard,No edits; no exports unless approved
+doctor_user_future,Doctor / Clinic User,Doctor or clinic,Only assigned doctor patients,View own patients; view reports,No other doctor data
+patient_user_future,Patient User,Patient,Own patient portal only,View own CPAP summary,No other patient data
