@@ -1,0 +1,3 @@
+﻿tenant_id,patient_external_id,patient_code,device_serial,device_model,setup_date,month_start,last_data_date,month_usage_hours,usage_hours_30d,days_used_30d,ahi_avg_30d,leak_avg_30d,doctor_external_id,branch_code,consent_basis,data_source
+raftopoulos-pilot-20,RFT-PILOT-001,PILOT-001,DEVICE-001,AirSense 10,2026-06-01,2026-06-01,2026-06-05,82,82,5,3.2,12,DR-001,PILOT20,approved_pilot,pilot20_manual
+raftopoulos-pilot-20,RFT-PILOT-002,PILOT-002,DEVICE-002,AirSense 10,2026-06-01,2026-06-01,2026-06-05,42,42,5,8.1,18,DR-001,PILOT20,approved_pilot,pilot20_manual
