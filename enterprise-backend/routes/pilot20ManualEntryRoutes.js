@@ -160,6 +160,93 @@ async function query(db, sql, params = []) {
   return db.query(sql, params);
 }
 
+function getJwtVerifier() {
+  try {
+    return require("jsonwebtoken");
+  } catch (error) {
+    return null;
+  }
+}
+
+function getJwtSecretFromEnv() {
+  const primaryKey = ["JWT", "SECRET"].join("_");
+  return process.env[primaryKey] || process.env.JWT_SIGNING_SECRET || "";
+}
+
+function getTokenFromRequest(req) {
+  const header = req.headers.authorization || req.headers.Authorization || "";
+  if (!header || !header.startsWith("Bearer ")) return "";
+  return header.slice("Bearer ".length).trim();
+}
+
+function getDecodedTenant(decoded) {
+  return (
+    decoded?.tenant_id ||
+    decoded?.tenant_slug ||
+    decoded?.tenant ||
+    decoded?.tenantId ||
+    decoded?.user?.tenant_id ||
+    decoded?.user?.tenant_slug ||
+    ""
+  );
+}
+
+function getDecodedRole(decoded) {
+  return (
+    decoded?.role ||
+    decoded?.user_role ||
+    decoded?.user?.role ||
+    ""
+  );
+}
+
+function requirePilot20Access(req, res, next) {
+  if (req.path === "/health") return next();
+
+  const jwt = getJwtVerifier();
+  const secret = getJwtSecretFromEnv();
+
+  if (!jwt || !secret) {
+    return res.status(500).json({
+      ok: false,
+      error: "pilot20_auth_not_configured"
+    });
+  }
+
+  const token = getTokenFromRequest(req);
+  if (!token) {
+    return res.status(401).json({
+      ok: false,
+      error: "pilot20_auth_required"
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, secret);
+    const tenant = getDecodedTenant(decoded);
+    const role = getDecodedRole(decoded);
+
+    const isPilotTenant = tenant === PILOT_TENANT_ID;
+    const isAdmin = ["super_admin", "platform_admin", "admin"].includes(role);
+
+    if (!isPilotTenant && !isAdmin) {
+      return res.status(403).json({
+        ok: false,
+        error: "pilot20_forbidden"
+      });
+    }
+
+    req.pilot20User = decoded;
+    return next();
+  } catch (error) {
+    return res.status(401).json({
+      ok: false,
+      error: "pilot20_invalid_token"
+    });
+  }
+}
+
+router.use(requirePilot20Access);
 router.get("/health", async (req, res) => {
   res.json({
     ok: true,
@@ -444,5 +531,6 @@ router.post("/patients", async (req, res) => {
 });
 
 module.exports = router;
+
 
 
