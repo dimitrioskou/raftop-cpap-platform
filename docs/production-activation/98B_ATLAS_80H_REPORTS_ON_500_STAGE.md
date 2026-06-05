@@ -13,16 +13,16 @@ The 500-row stage data was used to generate operational verification outputs.
 ## Outputs
 
 500-stage operational snapshot:
-C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_operational_snapshot_2026-06-05_18-10-11.csv
+C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_operational_snapshot_2026-06-05_18-27-06.csv
 
 500-stage ATLAS priority queue:
-C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_atlas_priority_queue_2026-06-05_18-10-11.csv
+C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_atlas_priority_queue_2026-06-05_18-27-06.csv
 
 500-stage 80h compliance summary:
-C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_80h_compliance_summary_2026-06-05_18-10-11.csv
+C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_80h_compliance_summary_2026-06-05_18-27-06.csv
 
 500-stage management snapshot:
-C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_management_snapshot_2026-06-05_18-10-11.csv
+C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\reports\phase98b_500_stage_management_snapshot_2026-06-05_18-27-06.csv
 
 ## Key metrics
 
