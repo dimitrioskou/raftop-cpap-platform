@@ -5,14 +5,75 @@ const router = express.Router();
 const PILOT_TENANT_ID = "raftopoulos-pilot-20";
 const PILOT_PATIENT_LIMIT = 20;
 
-function getDb(req) {
-  if (req.app && req.app.locals && req.app.locals.db) return req.app.locals.db;
-  if (req.app && req.app.locals && req.app.locals.pool) return req.app.locals.pool;
-  if (global.pool) return global.pool;
-  if (global.db) return global.db;
+let cachedPilot20Pool = null;
+
+function unwrapDb(candidate) {
+  if (!candidate) return null;
+  if (typeof candidate.query === "function") return candidate;
+  if (candidate.pool && typeof candidate.pool.query === "function") return candidate.pool;
+  if (candidate.db && typeof candidate.db.query === "function") return candidate.db;
+  if (candidate.default && typeof candidate.default.query === "function") return candidate.default;
   return null;
 }
 
+function tryRequireDb(paths) {
+  for (const p of paths) {
+    try {
+      const mod = require(p);
+      const db = unwrapDb(mod);
+      if (db) return db;
+    } catch (error) {
+      // optional db module not found
+    }
+  }
+  return null;
+}
+
+function createFallbackPoolFromEnv() {
+  if (cachedPilot20Pool) return cachedPilot20Pool;
+
+  const envKey = ["DATABASE", "URL"].join("_");
+  const connectionString = process.env[envKey];
+
+  if (!connectionString) return null;
+
+  const { Pool } = require("pg");
+
+  cachedPilot20Pool = new Pool({
+    connectionString,
+    ssl: {
+      rejectUnauthorized: false
+    }
+  });
+
+  return cachedPilot20Pool;
+}
+
+function getDb(req) {
+  const localDb =
+    unwrapDb(req?.app?.locals?.db) ||
+    unwrapDb(req?.app?.locals?.pool) ||
+    unwrapDb(global.pool) ||
+    unwrapDb(global.db);
+
+  if (localDb) return localDb;
+
+  const requiredDb = tryRequireDb([
+    "../db",
+    "../database",
+    "../pool",
+    "../config/db",
+    "../config/database",
+    "../src/db",
+    "../src/database",
+    "../src/config/db",
+    "../src/config/database"
+  ]);
+
+  if (requiredDb) return requiredDb;
+
+  return createFallbackPoolFromEnv();
+}
 function normalizeText(value) {
   if (value === undefined || value === null) return "";
   return String(value).trim();
@@ -383,4 +444,5 @@ router.post("/patients", async (req, res) => {
 });
 
 module.exports = router;
+
 
