@@ -1,0 +1,6 @@
+﻿RAFTOP CPAP CARE Pro - Final Sale Package SHA256
+
+File: C:\Users\Administrator\Desktop\RAFTOP_CPA_CARE\client-delivery\RAFTOP_FINAL_SALE_PACKAGE_v1.0.zip
+SHA256: 1D848D7BF0540431082A8E5DA2AB096190F993AD33567C89E3970C05C9CB3097
+
+Use this checksum to confirm the ZIP was not altered after delivery.
