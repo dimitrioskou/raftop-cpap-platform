@@ -53,6 +53,7 @@ import BuyerSettingsPage from "./pages/BuyerSettingsPage";
 import BuyerCompliancePage from "./pages/BuyerCompliancePage";
 import BuyerReportsPage from "./pages/BuyerReportsPage";
 import BuyerDoctorClinicPage from "./pages/BuyerDoctorClinicPage";
+import Pilot20ManualEntryPage from "./pages/Pilot20ManualEntryPage";
 
 const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
@@ -1213,7 +1214,8 @@ function AppRoutes() {
           <Route path="/clinic" element={<BuyerDoctorClinicPage />} />
 
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+            <Route path="/pilot20/manual-entry" element={<Pilot20ManualEntryPage />} />
+      </Routes>
   );
 }
 
@@ -1777,6 +1779,7 @@ const miniPre = {
   maxHeight: 220,
   fontSize: 11
 };
+
 
 
 

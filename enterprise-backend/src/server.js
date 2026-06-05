@@ -1,4 +1,4 @@
-// enterprise-backend/src/server.js
+﻿// enterprise-backend/src/server.js
 const helmet = require('helmet');
 const express = require('express');
 const cors = require('cors');
@@ -86,6 +86,7 @@ const { runtimeAclMiddleware } = require('./middleware/runtimeAclMiddleware');
 const { startSystemMonitoringLoop } = require('./services/systemMonitoringRunner');
 const { startSystemMaintenanceLoop } = require('./services/systemMaintenanceRunner');
 const { errorHandler } = require('./middleware/errorHandler');
+const pilot20ManualEntryRoutes = require("../routes/pilot20ManualEntryRoutes");
 
 const app = express();
 
@@ -230,6 +231,7 @@ app.use('/api/tenant/modules', tenantModulesRoutes);
 app.use('/api/tenant/integrations', tenantIntegrationsRoutes);
 app.use('/api/tenant/branding', tenantBrandingRoutes);
 app.use('/api/tenant/context', tenantContextRoutes);
+app.use("/api/pilot20", pilot20ManualEntryRoutes);
 
 // Final 404 handler
 app.use((req, res) => {
