@@ -27,7 +27,7 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function calculateLocalPreview(form) {
+function calculatePreview(form) {
   const monthUsage = toNumber(form.month_usage_hours);
   const ahi = toNumber(form.ahi_avg_30d);
   const leak = toNumber(form.leak_avg_30d);
@@ -37,23 +37,23 @@ function calculateLocalPreview(form) {
 
   if (monthUsage < 80) {
     score += 40;
-    reasons.push("ΞΞ¬Ο„Ο‰ Ξ±Ο€Ο 80 ΟΟΞµΟ‚");
+    reasons.push("Below 80 hours");
   }
 
   if (ahi > 10) {
     score += 25;
-    reasons.push("Ξ¥ΟΞ·Ξ»Ο AHI");
+    reasons.push("High AHI");
   }
 
   if (leak > 24) {
     score += 20;
-    reasons.push("Ξ¥ΟΞ·Ξ»Ο leak");
+    reasons.push("High leak");
   }
 
-  let priority = "Ξ§Ξ±ΞΌΞ·Ξ»Ξ®";
-  if (score >= 80) priority = "ΞΟΞ―ΟƒΞΉΞΌΞ·";
-  else if (score >= 50) priority = "Ξ¥ΟΞ·Ξ»Ξ®";
-  else if (score >= 25) priority = "ΞΞµΟƒΞ±Ξ―Ξ±";
+  let priority = "Low";
+  if (score >= 80) priority = "Critical";
+  else if (score >= 50) priority = "High";
+  else if (score >= 25) priority = "Medium";
 
   return {
     is80h: monthUsage >= 80,
@@ -70,22 +70,43 @@ export default function Pilot20ManualEntryPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [authRequired, setAuthRequired] = useState(false);
 
-  const preview = useMemo(() => calculateLocalPreview(form), [form]);
+  const preview = useMemo(() => calculatePreview(form), [form]);
+
+  function getToken() {
+    return localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+  }
+
+  function clearInvalidToken() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
+    setAuthRequired(true);
+  }
 
   async function apiFetch(path, options = {}) {
-    const token = localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+    const token = getToken();
+
+    if (!token) {
+      setAuthRequired(true);
+      throw new Error("Please login first.");
+    }
 
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Authorization: `Bearer ${token}`,
         ...(options.headers || {})
       }
     });
 
     const json = await response.json().catch(() => ({}));
+
+    if (response.status === 401 || json.error === "pilot20_invalid_token") {
+      clearInvalidToken();
+      throw new Error("Session expired. Please login again.");
+    }
 
     if (!response.ok) {
       throw new Error(json.message || json.error || "Request failed");
@@ -95,6 +116,8 @@ export default function Pilot20ManualEntryPage() {
   }
 
   async function loadData() {
+    setError("");
+
     try {
       const summaryJson = await apiFetch("/api/pilot20/summary");
       setSummary(summaryJson);
@@ -127,9 +150,9 @@ export default function Pilot20ManualEntryPage() {
       });
 
       setMessage(
-        `Ξ‘Ο€ΞΏΞΈΞ·ΞΊΞµΟΟ„Ξ·ΞΊΞµ: ${result.patient_code}. 80h: ${
-          result.is_80h_compliant ? "ΞΞ‘Ξ™" : "ΞΞ§Ξ™"
-        }. ATLAS: ${result.atlas?.priority || "-"}`
+        `Saved: ${result.patient_code}. 80h compliant: ${
+          result.is_80h_compliant ? "YES" : "NO"
+        }. ATLAS priority: ${result.atlas?.priority || "-"}`
       );
 
       setForm(EMPTY_FORM);
@@ -147,40 +170,31 @@ export default function Pilot20ManualEntryPage() {
   return (
     <div className="pilot20-page" style={{ padding: 24, maxWidth: 1180, margin: "0 auto" }}>
       <header style={{ marginBottom: 24 }}>
-        <p style={{ margin: 0, color: "#64748b", fontWeight: 700 }}>
+        <p style={{ margin: 0, color: "#64748b", fontWeight: 800 }}>
           RAFTOP CPAP CARE Pro
         </p>
-        <h1 style={{ margin: "4px 0 8px" }}>Pilot 20 β€” ΞΞ±Ο„Ξ±Ο‡ΟΟΞ·ΟƒΞ· CPAP Ξ±ΟƒΞΈΞµΞ½ΟΞ½</h1>
-        <p style={{ margin: 0, color: "#475569" }}>
-          ΞΞ±ΞΈΞ±ΟΟ pilot Ο€ΞµΟΞΉΞ²Ξ¬Ξ»Ξ»ΞΏΞ½ Ξ³ΞΉΞ± Ξ­Ο‰Ο‚ 20 ΟΞµΟ…Ξ΄Ο‰Ξ½Ο…ΞΌΞΏΟ€ΞΏΞΉΞ·ΞΌΞ­Ξ½ΞΏΟ…Ο‚ Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚.
-          Ξ”ΞµΞ½ ΞΊΞ±Ο„Ξ±Ο‡Ο‰ΟΞΏΟΞ½Ο„Ξ±ΞΉ ΞΏΞ½ΟΞΌΞ±Ο„Ξ±, ΟƒΟ„ΞΏΞΉΟ‡ΞµΞ―Ξ± ΞµΟ€ΞΉΞΊΞΏΞΉΞ½Ο‰Ξ½Ξ―Ξ±Ο‚ Ξ® Ξ¬ΞΌΞµΟƒΞ± Ξ±Ξ½Ξ±Ξ³Ξ½Ο‰ΟΞΉΟƒΟ„ΞΉΞΊΞ¬.
+        <h1 style={{ margin: "4px 0 8px", color: "#0f172a" }}>
+          Pilot 20 - CPAP Patient Entry
+        </h1>
+        <p style={{ margin: 0, color: "#475569", lineHeight: 1.6 }}>
+          Clean 2-month pilot environment for up to 20 pseudonymized CPAP patients.
+          Enter only patient code, device details and CPAP usage metrics.
         </p>
       </header>
 
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 12,
-          marginBottom: 24
-        }}
-      >
-        <div style={cardStyle}>
-          <div style={labelStyle}>Ξ‘ΟƒΞΈΞµΞ½ΞµΞ―Ο‚ pilot</div>
-          <div style={metricStyle}>{currentPatients}/20</div>
+      {authRequired && (
+        <div style={warningStyle}>
+          Please login again before using Pilot 20.
+          <br />
+          <a href="/login" style={{ fontWeight: 800 }}>Go to login</a>
         </div>
-        <div style={cardStyle}>
-          <div style={labelStyle}>Ξ”ΞΉΞ±ΞΈΞ­ΟƒΞΉΞΌΞµΟ‚ ΞΈΞ­ΟƒΞµΞΉΟ‚</div>
-          <div style={metricStyle}>{remainingSlots}</div>
-        </div>
-        <div style={cardStyle}>
-          <div style={labelStyle}>80h compliant records</div>
-          <div style={metricStyle}>{summary?.compliance?.compliant_records ?? "-"}</div>
-        </div>
-        <div style={cardStyle}>
-          <div style={labelStyle}>ΞΞ¬Ο„Ο‰ Ξ±Ο€Ο 80h</div>
-          <div style={metricStyle}>{summary?.compliance?.below_80h_records ?? "-"}</div>
-        </div>
+      )}
+
+      <section style={cardsGridStyle}>
+        <MetricCard label="Pilot patients" value={`${currentPatients}/20`} />
+        <MetricCard label="Remaining slots" value={remainingSlots} />
+        <MetricCard label="80h compliant records" value={summary?.compliance?.compliant_records ?? "-"} />
+        <MetricCard label="Below 80h records" value={summary?.compliance?.below_80h_records ?? "-"} />
       </section>
 
       {message && <div style={successStyle}>{message}</div>}
@@ -188,7 +202,7 @@ export default function Pilot20ManualEntryPage() {
 
       <section style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 20 }}>
         <form onSubmit={submitPatient} style={panelStyle}>
-          <h2 style={{ marginTop: 0 }}>ΞΞ­Ξ± ΞΊΞ±Ο„Ξ±Ο‡ΟΟΞ·ΟƒΞ· / ΞµΞ½Ξ·ΞΌΞ­ΟΟ‰ΟƒΞ· Ξ±ΟƒΞΈΞµΞ½ΞΏΟΟ‚</h2>
+          <h2 style={{ marginTop: 0, color: "#0f172a" }}>New patient entry / update</h2>
 
           <div style={gridStyle}>
             <Field label="Patient External ID" value={form.patient_external_id} onChange={(v) => updateField("patient_external_id", v)} required />
@@ -211,41 +225,31 @@ export default function Pilot20ManualEntryPage() {
           </div>
 
           <div style={{ marginTop: 18, display: "flex", gap: 12 }}>
-            <button type="submit" disabled={saving || remainingSlots <= 0} style={primaryButtonStyle}>
-              {saving ? "Ξ‘Ο€ΞΏΞΈΞ®ΞΊΞµΟ…ΟƒΞ·..." : "Ξ‘Ο€ΞΏΞΈΞ®ΞΊΞµΟ…ΟƒΞ· Ξ±ΟƒΞΈΞµΞ½ΞΏΟΟ‚"}
+            <button type="submit" disabled={saving || remainingSlots <= 0 || authRequired} style={primaryButtonStyle}>
+              {saving ? "Saving..." : "Save patient"}
             </button>
             <button type="button" onClick={() => setForm(EMPTY_FORM)} style={secondaryButtonStyle}>
-              ΞΞ±ΞΈΞ±ΟΞΉΟƒΞΌΟΟ‚
+              Clear
             </button>
           </div>
 
           {remainingSlots <= 0 && (
-            <p style={{ color: "#b91c1c", fontWeight: 700 }}>
-              Ξ¤ΞΏ ΟΟΞΉΞΏ Ο„Ο‰Ξ½ 20 Ξ±ΟƒΞΈΞµΞ½ΟΞ½ Ξ­Ο‡ΞµΞΉ ΟƒΟ…ΞΌΟ€Ξ»Ξ·ΟΟ‰ΞΈΞµΞ―.
+            <p style={{ color: "#b91c1c", fontWeight: 800 }}>
+              The 20-patient pilot limit has been reached.
             </p>
           )}
         </form>
 
         <aside style={panelStyle}>
-          <h2 style={{ marginTop: 0 }}>Ξ†ΞΌΞµΟƒΞ· Ο€ΟΞΏΞµΟ€ΞΉΟƒΞΊΟΟ€Ξ·ΟƒΞ·</h2>
+          <h2 style={{ marginTop: 0, color: "#0f172a" }}>Live preview</h2>
+
+          <PreviewBox label="80 Hours Compliance" value={preview.is80h ? "YES" : "NO"} />
+          <PreviewBox label="ATLAS Priority" value={preview.priority} subvalue={`Score: ${preview.score}`} />
 
           <div style={previewBoxStyle}>
-            <div style={labelStyle}>80 Hours Compliance</div>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>
-              {preview.is80h ? "ΞΞ‘Ξ™" : "ΞΞ§Ξ™"}
-            </div>
-          </div>
-
-          <div style={previewBoxStyle}>
-            <div style={labelStyle}>ATLAS Priority</div>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{preview.priority}</div>
-            <div style={{ color: "#64748b" }}>Score: {preview.score}</div>
-          </div>
-
-          <div style={previewBoxStyle}>
-            <div style={labelStyle}>Ξ›ΟΞ³ΞΏΞΉ follow-up</div>
+            <div style={labelStyle}>Follow-up reasons</div>
             {preview.reasons.length === 0 ? (
-              <div>Ξ”ΞµΞ½ Ο…Ο€Ξ¬ΟΟ‡ΞµΞΉ Ξ¬ΞΌΞµΟƒΞΏ ΟƒΞ®ΞΌΞ± ΞΊΞΉΞ½Ξ΄ΟΞ½ΞΏΟ….</div>
+              <div>No immediate risk signal.</div>
             ) : (
               <ul>
                 {preview.reasons.map((reason) => (
@@ -258,38 +262,35 @@ export default function Pilot20ManualEntryPage() {
       </section>
 
       <section style={{ ...panelStyle, marginTop: 24 }}>
-        <h2 style={{ marginTop: 0 }}>Pilot Ξ±ΟƒΞΈΞµΞ½ΞµΞ―Ο‚</h2>
+        <h2 style={{ marginTop: 0, color: "#0f172a" }}>Pilot patients</h2>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {[
-                  "Code",
-                  "Device",
-                  "Usage",
-                  "80h",
-                  "AHI",
-                  "Leak",
-                  "Doctor",
-                  "Last Data"
-                ].map((h) => (
+                {["Code", "Device", "Usage", "80h", "AHI", "Leak", "Doctor", "Last Data"].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {patients.map((p) => (
-                <tr key={p.patient_external_id}>
-                  <td style={tdStyle}>{p.patient_code}</td>
-                  <td style={tdStyle}>{p.device_serial}</td>
-                  <td style={tdStyle}>{p.month_usage_hours ?? "-"}</td>
-                  <td style={tdStyle}>{String(p.is_80h_compliant) === "true" ? "ΞΞ‘Ξ™" : "ΞΞ§Ξ™"}</td>
-                  <td style={tdStyle}>{p.ahi_avg_30d ?? "-"}</td>
-                  <td style={tdStyle}>{p.leak_avg_30d ?? "-"}</td>
-                  <td style={tdStyle}>{p.doctor_external_id ?? "-"}</td>
-                  <td style={tdStyle}>{p.last_data_date ?? "-"}</td>
+              {patients.length === 0 ? (
+                <tr>
+                  <td style={tdStyle} colSpan="8">No pilot patients entered yet.</td>
                 </tr>
-              ))}
+              ) : (
+                patients.map((p) => (
+                  <tr key={p.patient_external_id}>
+                    <td style={tdStyle}>{p.patient_code}</td>
+                    <td style={tdStyle}>{p.device_serial}</td>
+                    <td style={tdStyle}>{p.month_usage_hours ?? "-"}</td>
+                    <td style={tdStyle}>{String(p.is_80h_compliant) === "true" ? "YES" : "NO"}</td>
+                    <td style={tdStyle}>{p.ahi_avg_30d ?? "-"}</td>
+                    <td style={tdStyle}>{p.leak_avg_30d ?? "-"}</td>
+                    <td style={tdStyle}>{p.doctor_external_id ?? "-"}</td>
+                    <td style={tdStyle}>{p.last_data_date ?? "-"}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -298,10 +299,29 @@ export default function Pilot20ManualEntryPage() {
   );
 }
 
+function MetricCard({ label, value }) {
+  return (
+    <div style={cardStyle}>
+      <div style={labelStyle}>{label}</div>
+      <div style={metricStyle}>{value}</div>
+    </div>
+  );
+}
+
+function PreviewBox({ label, value, subvalue }) {
+  return (
+    <div style={previewBoxStyle}>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a" }}>{value}</div>
+      {subvalue && <div style={{ color: "#64748b" }}>{subvalue}</div>}
+    </div>
+  );
+}
+
 function Field({ label, value, onChange, required = false, type = "text" }) {
   return (
     <label style={{ display: "block" }}>
-      <span style={{ display: "block", marginBottom: 6, color: "#334155", fontWeight: 700 }}>
+      <span style={{ display: "block", marginBottom: 6, color: "#334155", fontWeight: 800 }}>
         {label}{required ? " *" : ""}
       </span>
       <input
@@ -314,6 +334,13 @@ function Field({ label, value, onChange, required = false, type = "text" }) {
     </label>
   );
 }
+
+const cardsGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 12,
+  marginBottom: 24
+};
 
 const cardStyle = {
   background: "#fff",
@@ -334,7 +361,7 @@ const panelStyle = {
 const labelStyle = {
   color: "#64748b",
   fontSize: 13,
-  fontWeight: 700,
+  fontWeight: 800,
   textTransform: "uppercase",
   letterSpacing: 0.4
 };
@@ -342,7 +369,8 @@ const labelStyle = {
 const metricStyle = {
   fontSize: 30,
   fontWeight: 900,
-  marginTop: 6
+  marginTop: 6,
+  color: "#0f172a"
 };
 
 const gridStyle = {
@@ -356,7 +384,8 @@ const inputStyle = {
   padding: "11px 12px",
   borderRadius: 10,
   border: "1px solid #cbd5e1",
-  fontSize: 14
+  fontSize: 14,
+  boxSizing: "border-box"
 };
 
 const primaryButtonStyle = {
@@ -365,7 +394,7 @@ const primaryButtonStyle = {
   border: "none",
   borderRadius: 12,
   padding: "12px 18px",
-  fontWeight: 800,
+  fontWeight: 900,
   cursor: "pointer"
 };
 
@@ -375,7 +404,7 @@ const secondaryButtonStyle = {
   border: "1px solid #cbd5e1",
   borderRadius: 12,
   padding: "12px 18px",
-  fontWeight: 800,
+  fontWeight: 900,
   cursor: "pointer"
 };
 
@@ -394,7 +423,7 @@ const successStyle = {
   padding: 12,
   borderRadius: 12,
   marginBottom: 16,
-  fontWeight: 700
+  fontWeight: 800
 };
 
 const errorStyle = {
@@ -404,7 +433,17 @@ const errorStyle = {
   padding: 12,
   borderRadius: 12,
   marginBottom: 16,
-  fontWeight: 700
+  fontWeight: 800
+};
+
+const warningStyle = {
+  background: "#fef3c7",
+  color: "#92400e",
+  border: "1px solid #fde68a",
+  padding: 12,
+  borderRadius: 12,
+  marginBottom: 16,
+  fontWeight: 800
 };
 
 const thStyle = {
@@ -418,4 +457,3 @@ const tdStyle = {
   padding: "10px 8px",
   borderBottom: "1px solid #f1f5f9"
 };
-
