@@ -27,8 +27,8 @@ function pilot20ControlKey(req) {
 
 function pilot20ExpectedControlKey() {
   return String(
-    process.env["SUPER_" + "ADMIN_API_KEY"] ||
     process.env["RAFTOP_" + "CONTROL_KEY"] ||
+    process.env["SUPER_" + "ADMIN_API_KEY"] ||
     ""
   ).trim();
 }
@@ -2498,6 +2498,7 @@ router.post("/internal/tenant-control/set", async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 
