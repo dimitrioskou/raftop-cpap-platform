@@ -1,6 +1,7 @@
 ﻿const PILOT20_TENANT = "raftopoulos-pilot-20";
 const PILOT20_PATH = "/pilot20/manual-entry";
 const LOGIN_PATH = "/login";
+const LOCK_KEY = "RAFTOP_PILOT20_BUYER_LOCK";
 
 function safeJsonParse(value) {
   try {
@@ -76,36 +77,101 @@ function extractEmail(payload) {
   );
 }
 
+function lockPilot20() {
+  try {
+    localStorage.setItem(LOCK_KEY, "1");
+  } catch (error) {
+    // ignore
+  }
+}
+
+function unlockPilot20IfAdminLoginDetected() {
+  const path = window.location.pathname;
+
+  if (path === LOGIN_PATH || path.startsWith(LOGIN_PATH)) {
+    const emailInput = document.querySelector('input[type="email"], input[name="email"], input[placeholder*="email" i]');
+    const tenantInput = document.querySelector('input[name="tenant"], input[placeholder*="tenant" i]');
+
+    const email = String(emailInput?.value || "").toLowerCase();
+    const tenant = String(tenantInput?.value || "").toLowerCase();
+
+    if (email && !email.includes("pilot") && tenant && tenant !== PILOT20_TENANT) {
+      localStorage.removeItem(LOCK_KEY);
+    }
+  }
+}
+
 function isPilot20Payload(payload) {
   if (!payload) return false;
 
-  const tenant = extractTenant(payload);
-  const email = extractEmail(payload);
+  const tenant = String(extractTenant(payload)).toLowerCase();
+  const email = String(extractEmail(payload)).toLowerCase();
 
   if (tenant === PILOT20_TENANT) return true;
-  if (String(email).toLowerCase().includes("raftopoulos.pilot")) return true;
+  if (email.includes("raftopoulos.pilot")) return true;
+  if (email.includes("pilot") && email.includes("raftopoulos")) return true;
 
   return false;
 }
 
 function isPilot20User() {
+  if (localStorage.getItem(LOCK_KEY) === "1") return true;
+
   const token = getStoredToken();
   const decoded = decodeJwt(token);
 
-  if (isPilot20Payload(decoded)) return true;
+  if (isPilot20Payload(decoded)) {
+    lockPilot20();
+    return true;
+  }
 
   const storedObjects = readPossibleUserObjects();
-  return storedObjects.some(isPilot20Payload);
+  const matched = storedObjects.some(isPilot20Payload);
+
+  if (matched) {
+    lockPilot20();
+    return true;
+  }
+
+  return false;
 }
 
 function isAllowedPilot20Path(pathname) {
   return pathname === PILOT20_PATH || pathname.startsWith(LOGIN_PATH);
 }
 
+function detectPilotLoginFormInput() {
+  const inputs = Array.from(document.querySelectorAll("input"));
+  const values = inputs.map((input) => String(input.value || "").toLowerCase()).join(" ");
+
+  if (values.includes(PILOT20_TENANT)) {
+    lockPilot20();
+    return;
+  }
+
+  if (values.includes("raftopoulos.pilot")) {
+    lockPilot20();
+    return;
+  }
+
+  if (values.includes("pilot") && values.includes("raftopoulos")) {
+    lockPilot20();
+  }
+}
+
 function enforcePilot20Isolation() {
-  if (!isPilot20User()) return;
+  unlockPilot20IfAdminLoginDetected();
 
   const currentPath = window.location.pathname;
+
+  if (currentPath === PILOT20_PATH) {
+    lockPilot20();
+    return;
+  }
+
+  detectPilotLoginFormInput();
+
+  if (!isPilot20User()) return;
 
   if (!isAllowedPilot20Path(currentPath)) {
     window.location.replace(PILOT20_PATH);
@@ -127,13 +193,21 @@ function installHistoryHooks() {
   };
 }
 
+function installFormHooks() {
+  document.addEventListener("input", detectPilotLoginFormInput, true);
+  document.addEventListener("change", detectPilotLoginFormInput, true);
+  document.addEventListener("submit", detectPilotLoginFormInput, true);
+  document.addEventListener("click", detectPilotLoginFormInput, true);
+}
+
 if (typeof window !== "undefined") {
   installHistoryHooks();
+  installFormHooks();
 
   window.addEventListener("load", enforcePilot20Isolation);
   window.addEventListener("popstate", enforcePilot20Isolation);
   window.addEventListener("storage", enforcePilot20Isolation);
 
   setTimeout(enforcePilot20Isolation, 0);
-  setInterval(enforcePilot20Isolation, 750);
+  setInterval(enforcePilot20Isolation, 500);
 }
