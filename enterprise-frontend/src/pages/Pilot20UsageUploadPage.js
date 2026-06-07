@@ -95,6 +95,7 @@ export default function Pilot20UsageUploadPage() {
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <a href="/pilot20/manual-entry" style={secondaryButtonStyle}>Patient Entry</a>
           <a href="/pilot20/rescue-monitor" style={primaryLinkStyle}>Rescue Monitor</a>
+          <a href="/pilot20/import-history" style={secondaryButtonStyle}>Import History</a>
         </div>
       </header>
 
@@ -346,5 +347,6 @@ const tdStyle = {
   borderBottom: "1px solid #f1f5f9",
   verticalAlign: "top"
 };
+
 
 

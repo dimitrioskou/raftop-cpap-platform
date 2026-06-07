@@ -1044,6 +1044,137 @@ function pilot20NormalizeAirViewUsageCsv(parsed) {
   };
 }
 
+
+async function pilot20EnsureImportAuditTables(db) {
+  await query(
+    db,
+    `
+    create table if not exists public.pilot20_import_batches (
+      id serial primary key,
+      tenant_slug text not null,
+      upload_source text not null default 'airview_csv',
+      filename text,
+      total_rows integer not null default 0,
+      updated_count integer not null default 0,
+      skipped_count integer not null default 0,
+      error_count integer not null default 0,
+      created_by_email text,
+      created_by_role text,
+      created_at timestamp with time zone not null default now()
+    )
+    `,
+    []
+  );
+
+  await query(
+    db,
+    `
+    create table if not exists public.pilot20_import_batch_rows (
+      id serial primary key,
+      batch_id integer not null references public.pilot20_import_batches(id) on delete cascade,
+      line_number integer,
+      status text not null,
+      device_serial text,
+      patient_external_id text,
+      reason text,
+      last_data_date text,
+      month_usage_hours numeric,
+      is_80h_compliant boolean,
+      created_at timestamp with time zone not null default now()
+    )
+    `,
+    []
+  );
+}
+
+function pilot20GetActor(req) {
+  const user = req.user || req.auth || req.account || {};
+  return {
+    email: user.email || user.user_email || user.username || "pilot20_user",
+    role: user.role || user.user_role || "pilot20"
+  };
+}
+
+async function pilot20WriteImportAudit(db, req, report) {
+  try {
+    await pilot20EnsureImportAuditTables(db);
+
+    const actor = pilot20GetActor(req);
+
+    const batchResult = await query(
+      db,
+      `
+      insert into public.pilot20_import_batches
+        (
+          tenant_slug,
+          upload_source,
+          filename,
+          total_rows,
+          updated_count,
+          skipped_count,
+          error_count,
+          created_by_email,
+          created_by_role
+        )
+      values
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      returning id
+      `,
+      [
+        PILOT_TENANT_ID,
+        req.body?.upload_source || "airview_csv",
+        req.body?.filename || req.body?.file_name || "uploaded_usage_csv",
+        report.total_rows || 0,
+        report.updated || 0,
+        report.skipped || 0,
+        report.errors || 0,
+        actor.email,
+        actor.role
+      ]
+    );
+
+    const batchId = batchResult.rows[0].id;
+
+    for (const row of report.rows || []) {
+      await query(
+        db,
+        `
+        insert into public.pilot20_import_batch_rows
+          (
+            batch_id,
+            line_number,
+            status,
+            device_serial,
+            patient_external_id,
+            reason,
+            last_data_date,
+            month_usage_hours,
+            is_80h_compliant
+          )
+        values
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `,
+        [
+          batchId,
+          row.line || null,
+          row.status || "unknown",
+          row.device_serial || null,
+          row.patient_external_id || null,
+          row.reason || null,
+          row.last_data_date || null,
+          row.month_usage_hours ?? null,
+          row.is_80h_compliant ?? null
+        ]
+      );
+    }
+
+    return batchId;
+  } catch (error) {
+    report.audit_warning = error.message;
+    return null;
+  }
+}
+
 router.post("/usage-upload", async (req, res) => {
   try {
     const db = getDb(req);
@@ -1235,7 +1366,123 @@ router.post("/usage-upload", async (req, res) => {
   }
 });
 
+
+router.get("/import-history", async (req, res) => {
+  try {
+    const db = getDb(req);
+    await pilot20EnsureImportAuditTables(db);
+
+    const result = await query(
+      db,
+      `
+      select
+        id,
+        tenant_slug,
+        upload_source,
+        filename,
+        total_rows,
+        updated_count,
+        skipped_count,
+        error_count,
+        created_by_email,
+        created_by_role,
+        created_at
+      from public.pilot20_import_batches
+      where tenant_slug = $1
+      order by created_at desc, id desc
+      limit 50
+      `,
+      [PILOT_TENANT_ID]
+    );
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_import_history",
+      rows: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_import_history_failed",
+      message: error.message
+    });
+  }
+});
+
+router.get("/import-history/:batchId", async (req, res) => {
+  try {
+    const db = getDb(req);
+    await pilot20EnsureImportAuditTables(db);
+
+    const batchId = Number(req.params.batchId);
+
+    if (!Number.isFinite(batchId)) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid_batch_id"
+      });
+    }
+
+    const batchResult = await query(
+      db,
+      `
+      select *
+      from public.pilot20_import_batches
+      where tenant_slug = $1
+        and id = $2
+      limit 1
+      `,
+      [PILOT_TENANT_ID, batchId]
+    );
+
+    if (!batchResult.rows || batchResult.rows.length === 0) {
+      return res.status(404).json({
+        ok: false,
+        error: "import_batch_not_found"
+      });
+    }
+
+    const rowsResult = await query(
+      db,
+      `
+      select
+        id,
+        batch_id,
+        line_number,
+        status,
+        device_serial,
+        patient_external_id,
+        reason,
+        last_data_date,
+        month_usage_hours,
+        is_80h_compliant,
+        created_at
+      from public.pilot20_import_batch_rows
+      where batch_id = $1
+      order by line_number asc, id asc
+      `,
+      [batchId]
+    );
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_import_history_details",
+      batch: batchResult.rows[0],
+      rows: rowsResult.rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_import_history_details_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 
