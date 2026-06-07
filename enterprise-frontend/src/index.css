@@ -45,3 +45,31 @@ a {
 .pilot20-page * {
   font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif !important;
 }
+
+/* RAFTOP Phase 109 - Pilot20 buyer isolation overlay */
+.pilot20-page {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483000 !important;
+  overflow-y: auto !important;
+  background: #f8fafc !important;
+  max-width: none !important;
+  width: 100vw !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+  padding: 24px !important;
+  box-sizing: border-box !important;
+  font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif !important;
+}
+
+.pilot20-page * {
+  font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif !important;
+}
+
+.pilot20-page > header,
+.pilot20-page > section,
+.pilot20-page > div {
+  max-width: 1180px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}

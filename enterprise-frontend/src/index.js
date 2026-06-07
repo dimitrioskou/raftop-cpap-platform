@@ -1,3 +1,4 @@
+﻿import "./pilot20ClientGuard";
 import "./productionAuthGate";
 import React from 'react';
 import ReactDOM from 'react-dom/client';
