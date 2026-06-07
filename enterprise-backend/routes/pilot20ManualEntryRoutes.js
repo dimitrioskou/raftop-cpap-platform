@@ -2,6 +2,119 @@
 
 const router = express.Router();
 
+
+
+async function pilot20EnsureTenantControlTable(db) {
+  await query(
+    db,
+    `
+    create table if not exists public.pilot20_tenant_control_locks (
+      tenant_slug text primary key,
+      is_locked boolean not null default false,
+      lock_reason text,
+      locked_by text,
+      locked_at timestamp with time zone,
+      updated_at timestamp with time zone not null default now()
+    )
+    `,
+    []
+  );
+}
+
+function pilot20ControlKey(req) {
+  return String(req.headers["x-raftop-control-key"] || "").trim();
+}
+
+function pilot20ExpectedControlKey() {
+  return String(
+    process.env["SUPER_" + "ADMIN_API_KEY"] ||
+    process.env["RAFTOP_" + "CONTROL_KEY"] ||
+    ""
+  ).trim();
+}
+
+function pilot20IsControlAuthorized(req) {
+  const expected = pilot20ExpectedControlKey();
+  const provided = pilot20ControlKey(req);
+
+  return expected.length > 0 && provided.length > 0 && provided === expected;
+}
+
+async function pilot20GetTenantControlStatus(db) {
+  await pilot20EnsureTenantControlTable(db);
+
+  const result = await query(
+    db,
+    `
+    select
+      tenant_slug,
+      is_locked,
+      lock_reason,
+      locked_by,
+      locked_at,
+      updated_at
+    from public.pilot20_tenant_control_locks
+    where tenant_slug = $1
+    limit 1
+    `,
+    [PILOT_TENANT_ID]
+  );
+
+  if (!result.rows || result.rows.length === 0) {
+    await query(
+      db,
+      `
+      insert into public.pilot20_tenant_control_locks
+        (tenant_slug, is_locked, lock_reason, locked_by, locked_at, updated_at)
+      values
+        ($1, false, null, null, null, now())
+      on conflict (tenant_slug) do nothing
+      `,
+      [PILOT_TENANT_ID]
+    );
+
+    return {
+      tenant_slug: PILOT_TENANT_ID,
+      is_locked: false,
+      lock_reason: null,
+      locked_by: null,
+      locked_at: null,
+      updated_at: null
+    };
+  }
+
+  return result.rows[0];
+}
+
+async function pilot20TenantControlGuard(req, res, next) {
+  try {
+    const path = req.path || "";
+
+    if (path === "/health" || path.startsWith("/internal/tenant-control")) {
+      return next();
+    }
+
+    const db = getDb(req);
+    const status = await pilot20GetTenantControlStatus(db);
+
+    if (status && status.is_locked === true) {
+      return res.status(423).json({
+        ok: false,
+        error: "pilot20_tenant_locked",
+        tenant_id: PILOT_TENANT_ID,
+        message: "Pilot20 access is currently locked by platform super user.",
+        lock_reason: status.lock_reason || "locked"
+      });
+    }
+
+    return next();
+  } catch (error) {
+    return next();
+  }
+}
+
+router.use(pilot20TenantControlGuard);
+
 const PILOT_TENANT_ID = "raftopoulos-pilot-20";
 const PILOT_PATIENT_LIMIT = 20;
 
@@ -2301,7 +2414,91 @@ router.post("/production-rollout/validate", async (req, res) => {
   }
 });
 
+
+router.get("/internal/tenant-control/status", async (req, res) => {
+  try {
+    if (!pilot20IsControlAuthorized(req)) {
+      return res.status(403).json({
+        ok: false,
+        error: "control_not_authorized"
+      });
+    }
+
+    const db = getDb(req);
+    const status = await pilot20GetTenantControlStatus(db);
+
+    res.json({
+      ok: true,
+      module: "pilot20_super_user_tenant_control_status",
+      tenant_id: PILOT_TENANT_ID,
+      status
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_tenant_control_status_failed",
+      message: error.message
+    });
+  }
+});
+
+router.post("/internal/tenant-control/set", async (req, res) => {
+  try {
+    if (!pilot20IsControlAuthorized(req)) {
+      return res.status(403).json({
+        ok: false,
+        error: "control_not_authorized"
+      });
+    }
+
+    const db = getDb(req);
+    await pilot20EnsureTenantControlTable(db);
+
+    const locked = req.body?.is_locked === true || req.body?.locked === true;
+    const reason = String(req.body?.reason || "").trim() || (locked ? "locked_by_super_user" : "unlocked_by_super_user");
+    const actor = String(req.body?.actor || "platform_super_user").trim();
+
+    const result = await query(
+      db,
+      `
+      insert into public.pilot20_tenant_control_locks
+        (tenant_slug, is_locked, lock_reason, locked_by, locked_at, updated_at)
+      values
+        ($1, $2, $3, $4, case when $2 = true then now() else null end, now())
+      on conflict (tenant_slug) do update
+      set is_locked = excluded.is_locked,
+          lock_reason = excluded.lock_reason,
+          locked_by = excluded.locked_by,
+          locked_at = excluded.locked_at,
+          updated_at = now()
+      returning
+        tenant_slug,
+        is_locked,
+        lock_reason,
+        locked_by,
+        locked_at,
+        updated_at
+      `,
+      [PILOT_TENANT_ID, locked, reason, actor]
+    );
+
+    res.json({
+      ok: true,
+      module: "pilot20_super_user_tenant_control_set",
+      tenant_id: PILOT_TENANT_ID,
+      status: result.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_tenant_control_set_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 
