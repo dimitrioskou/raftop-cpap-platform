@@ -1,0 +1,4 @@
+﻿device_serial,month_start,last_data_date,month_usage_hours,usage_hours_30d,days_used_30d,ahi_avg_30d,leak_avg_30d
+DEVICE-001,2026-06-01,2026-06-10,24,24,8,7.2,18
+DEVICE-002,2026-06-01,2026-06-10,61,61,10,3.8,12
+DEVICE-003,2026-06-01,2026-06-10,14,14,4,12.4,31

@@ -741,7 +741,324 @@ router.get("/rescue-monitor", async (req, res) => {
   }
 });
 
+
+function pilot20CsvSplitLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function pilot20ParseCsv(csvText) {
+  const cleanText = String(csvText || "").replace(/^\uFEFF/, "");
+  const lines = cleanText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length < 2) {
+    return {
+      ok: false,
+      error: "csv_requires_header_and_at_least_one_data_row",
+      rows: []
+    };
+  }
+
+  const headers = pilot20CsvSplitLine(lines[0]).map((h) => h.trim());
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const values = pilot20CsvSplitLine(lines[i]);
+    const row = {};
+
+    headers.forEach((header, index) => {
+      row[header] = values[index] || "";
+    });
+
+    row.__line = i + 1;
+    rows.push(row);
+  }
+
+  return {
+    ok: true,
+    headers,
+    rows
+  };
+}
+
+function pilot20RequireUsageHeaders(headers) {
+  const required = [
+    "device_serial",
+    "month_start",
+    "last_data_date",
+    "month_usage_hours",
+    "usage_hours_30d",
+    "days_used_30d",
+    "ahi_avg_30d",
+    "leak_avg_30d"
+  ];
+
+  return required.filter((header) => !headers.includes(header));
+}
+
+function pilot20CleanValue(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+function pilot20ToNumberValue(value, fallback = 0) {
+  const n = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function pilot20ToIntegerValue(value, fallback = 0) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function pilot20ToDateText(value) {
+  const text = pilot20CleanValue(value);
+  if (!text) return "";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "";
+  return text.slice(0, 10);
+}
+
+function pilot20HasForbiddenCsvHeaders(headers) {
+  const forbidden = [
+    "first_name",
+    "last_name",
+    "full_name",
+    "patient_name",
+    "phone",
+    "mobile",
+    "email",
+    "amka",
+    "address",
+    "date_of_birth",
+    "birth_date"
+  ];
+
+  return forbidden.filter((header) => headers.map((h) => h.toLowerCase()).includes(header));
+}
+
+router.get("/usage-template", async (req, res) => {
+  res.type("text/csv").send(
+    [
+      "device_serial,month_start,last_data_date,month_usage_hours,usage_hours_30d,days_used_30d,ahi_avg_30d,leak_avg_30d",
+      "DEVICE-001,2026-06-01,2026-06-10,24,24,8,7.2,18"
+    ].join("\n")
+  );
+});
+
+router.post("/usage-upload", async (req, res) => {
+  try {
+    const db = getDb(req);
+    const csvText = req.body?.csv_text || req.body?.csvText || "";
+
+    const parsed = pilot20ParseCsv(csvText);
+
+    if (!parsed.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: parsed.error
+      });
+    }
+
+    const missingHeaders = pilot20RequireUsageHeaders(parsed.headers);
+
+    if (missingHeaders.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_required_headers",
+        missing_headers: missingHeaders
+      });
+    }
+
+    const forbiddenHeaders = pilot20HasForbiddenCsvHeaders(parsed.headers);
+
+    if (forbiddenHeaders.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "direct_identifiers_not_allowed_in_usage_csv",
+        forbidden_headers: forbiddenHeaders
+      });
+    }
+
+    const report = {
+      total_rows: parsed.rows.length,
+      updated: 0,
+      skipped: 0,
+      errors: 0,
+      rows: []
+    };
+
+    for (const row of parsed.rows) {
+      const deviceSerial = pilot20CleanValue(row.device_serial);
+      const monthStart = pilot20ToDateText(row.month_start);
+      const lastDataDate = pilot20ToDateText(row.last_data_date);
+
+      if (!deviceSerial || !lastDataDate) {
+        report.skipped += 1;
+        report.rows.push({
+          line: row.__line,
+          status: "skipped",
+          reason: "device_serial_and_last_data_date_required",
+          device_serial: deviceSerial
+        });
+        continue;
+      }
+
+      const deviceResult = await query(
+        db,
+        `
+        select patient_external_id
+        from public.devices
+        where tenant_slug = $1
+          and device_serial = $2
+        limit 1
+        `,
+        [PILOT_TENANT_ID, deviceSerial]
+      );
+
+      if (!deviceResult.rows || deviceResult.rows.length === 0) {
+        report.skipped += 1;
+        report.rows.push({
+          line: row.__line,
+          status: "skipped",
+          reason: "device_not_found_in_pilot20",
+          device_serial: deviceSerial
+        });
+        continue;
+      }
+
+      const patientExternalId = deviceResult.rows[0].patient_external_id;
+      const monthUsageHours = pilot20ToNumberValue(row.month_usage_hours);
+      const usageHours30d = pilot20ToNumberValue(row.usage_hours_30d);
+      const daysUsed30d = pilot20ToIntegerValue(row.days_used_30d);
+      const ahiAvg30d = pilot20ToNumberValue(row.ahi_avg_30d);
+      const leakAvg30d = pilot20ToNumberValue(row.leak_avg_30d);
+
+      try {
+        await query(
+          db,
+          `
+          insert into public.compliance_nights
+            (
+              tenant_slug,
+              patient_external_id,
+              device_serial,
+              record_date,
+              month_start,
+              usage_hours,
+              month_usage_hours,
+              usage_hours_30d,
+              days_used_30d,
+              ahi_avg_30d,
+              leak_avg_30d,
+              data_source,
+              created_at,
+              updated_at
+            )
+          values
+            ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, 'pilot20_usage_csv', now(), now())
+          on conflict (tenant_slug, patient_external_id, record_date) do update
+          set device_serial = excluded.device_serial,
+              month_start = excluded.month_start,
+              usage_hours = excluded.usage_hours,
+              month_usage_hours = excluded.month_usage_hours,
+              usage_hours_30d = excluded.usage_hours_30d,
+              days_used_30d = excluded.days_used_30d,
+              ahi_avg_30d = excluded.ahi_avg_30d,
+              leak_avg_30d = excluded.leak_avg_30d,
+              data_source = excluded.data_source,
+              updated_at = now()
+          `,
+          [
+            PILOT_TENANT_ID,
+            patientExternalId,
+            deviceSerial,
+            lastDataDate,
+            monthStart,
+            monthUsageHours,
+            usageHours30d,
+            daysUsed30d,
+            ahiAvg30d,
+            leakAvg30d
+          ]
+        );
+
+        await query(
+          db,
+          `
+          update public.devices
+          set last_data_date = $3,
+              data_source = 'pilot20_usage_csv',
+              updated_at = now()
+          where tenant_slug = $1
+            and device_serial = $2
+          `,
+          [PILOT_TENANT_ID, deviceSerial, lastDataDate]
+        );
+
+        report.updated += 1;
+        report.rows.push({
+          line: row.__line,
+          status: "updated",
+          patient_external_id: patientExternalId,
+          device_serial: deviceSerial,
+          last_data_date: lastDataDate,
+          month_usage_hours: monthUsageHours,
+          is_80h_compliant: monthUsageHours >= 80
+        });
+      } catch (error) {
+        report.errors += 1;
+        report.rows.push({
+          line: row.__line,
+          status: "error",
+          reason: error.message,
+          device_serial: deviceSerial
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_automatic_cpap_usage_update_engine",
+      message: "Usage CSV processed. Rescue Monitor recalculates automatically from latest compliance records.",
+      report
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_usage_upload_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 

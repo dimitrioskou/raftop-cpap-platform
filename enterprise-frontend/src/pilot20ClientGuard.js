@@ -1,6 +1,7 @@
 ﻿const PILOT20_TENANT = "raftopoulos-pilot-20";
 const PILOT20_PATH = "/pilot20/manual-entry";
 const PILOT20_RESCUE_PATH = "/pilot20/rescue-monitor";
+const PILOT20_UPLOAD_PATH = "/pilot20/usage-upload";
 const LOGIN_PATH = "/login";
 const LOCK_KEY = "RAFTOP_PILOT20_BUYER_LOCK";
 
@@ -138,7 +139,7 @@ function isPilot20User() {
 }
 
 function isAllowedPilot20Path(pathname) {
-  return pathname === PILOT20_PATH || pathname === PILOT20_RESCUE_PATH || pathname.startsWith(LOGIN_PATH);
+  return pathname === PILOT20_PATH || pathname === PILOT20_RESCUE_PATH || pathname === PILOT20_UPLOAD_PATH || pathname.startsWith(LOGIN_PATH);
 }
 
 function detectPilotLoginFormInput() {
@@ -165,7 +166,7 @@ function enforcePilot20Isolation() {
 
   const currentPath = window.location.pathname;
 
-  if (currentPath === PILOT20_PATH || currentPath === PILOT20_RESCUE_PATH) {
+  if (currentPath === PILOT20_PATH || currentPath === PILOT20_RESCUE_PATH || currentPath === PILOT20_UPLOAD_PATH) {
     lockPilot20();
     return;
   }
@@ -212,5 +213,6 @@ if (typeof window !== "undefined") {
   setTimeout(enforcePilot20Isolation, 0);
   setInterval(enforcePilot20Isolation, 500);
 }
+
 
 

@@ -182,6 +182,7 @@ export default function Pilot20ManualEntryPage() {
         </p>
               <div style={{ marginTop: 16 }}>
           <button type="button" onClick={() => { window.location.href = "/pilot20/rescue-monitor"; }} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 900, cursor: "pointer" }}>Open 80h Rescue Monitor</button>
+          <button type="button" onClick={() => { window.location.href = "/pilot20/usage-upload"; }} style={{ background: "#0f766e", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 900, cursor: "pointer", marginLeft: 10 }}>Upload CPAP Usage CSV</button>
         </div>
       </header>
 
@@ -460,4 +461,5 @@ const tdStyle = {
   padding: "10px 8px",
   borderBottom: "1px solid #f1f5f9"
 };
+
 

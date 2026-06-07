@@ -103,6 +103,7 @@ export default function Pilot20ComplianceRescueMonitorPage() {
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <a href="/pilot20/manual-entry" style={secondaryButtonStyle}>Patient Entry</a>
+          <a href="/pilot20/usage-upload" style={secondaryButtonStyle}>Upload Usage CSV</a>
           <button onClick={loadData} style={primaryButtonStyle}>Refresh</button>
         </div>
       </header>
@@ -368,3 +369,4 @@ const infoStyle = {
   borderRadius: 12,
   fontWeight: 800
 };
+
