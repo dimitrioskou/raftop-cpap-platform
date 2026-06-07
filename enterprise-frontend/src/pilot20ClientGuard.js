@@ -138,7 +138,7 @@ function isPilot20User() {
 }
 
 function isAllowedPilot20Path(pathname) {
-  return pathname === PILOT20_PATH || pathname.startsWith(LOGIN_PATH);
+  return pathname === PILOT20_PATH || pathname === PILOT20_RESCUE_PATH || pathname.startsWith(LOGIN_PATH);
 }
 
 function detectPilotLoginFormInput() {
@@ -165,7 +165,7 @@ function enforcePilot20Isolation() {
 
   const currentPath = window.location.pathname;
 
-  if (currentPath === PILOT20_PATH) {
+  if (currentPath === PILOT20_PATH || currentPath === PILOT20_RESCUE_PATH) {
     lockPilot20();
     return;
   }
@@ -212,4 +212,5 @@ if (typeof window !== "undefined") {
   setTimeout(enforcePilot20Isolation, 0);
   setInterval(enforcePilot20Isolation, 500);
 }
+
 

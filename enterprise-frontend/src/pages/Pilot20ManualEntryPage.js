@@ -181,9 +181,7 @@ export default function Pilot20ManualEntryPage() {
           Enter only patient code, device details and CPAP usage metrics.
         </p>
               <div style={{ marginTop: 16 }}>
-          <a href="/pilot20/rescue-monitor" style={{ background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 18px", fontWeight: 900, textDecoration: "none", display: "inline-block" }}>
-            Open 80h Rescue Monitor
-          </a>
+          <button type="button" onClick={() => { window.location.href = "/pilot20/rescue-monitor"; }} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 900, cursor: "pointer" }}>Open 80h Rescue Monitor</button>
         </div>
       </header>
 
@@ -462,3 +460,4 @@ const tdStyle = {
   padding: "10px 8px",
   borderBottom: "1px solid #f1f5f9"
 };
+
