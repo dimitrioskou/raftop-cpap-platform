@@ -1579,7 +1579,172 @@ router.get("/unmatched-devices", async (req, res) => {
   }
 });
 
+
+router.get("/monthly-value-report", async (req, res) => {
+  try {
+    const db = getDb(req);
+
+    const patientsResult = await query(
+      db,
+      `
+      with latest_compliance as (
+        select distinct on (tenant_slug, patient_external_id)
+          tenant_slug,
+          patient_external_id,
+          device_serial,
+          record_date,
+          month_start,
+          usage_hours,
+          month_usage_hours,
+          usage_hours_30d,
+          days_used_30d,
+          ahi_avg_30d,
+          leak_avg_30d
+        from public.compliance_nights
+        where tenant_slug = $1
+        order by tenant_slug, patient_external_id, record_date desc
+      )
+      select
+        p.patient_external_id,
+        p.patient_code,
+        p.doctor_external_id,
+        p.branch_code,
+        p.setup_date,
+        d.device_serial,
+        d.device_model,
+        d.last_data_date,
+        c.record_date,
+        c.month_start,
+        c.usage_hours,
+        c.month_usage_hours,
+        c.usage_hours_30d,
+        c.days_used_30d,
+        c.ahi_avg_30d,
+        c.leak_avg_30d
+      from public.patients p
+      left join public.devices d
+        on d.tenant_slug = p.tenant_slug
+       and d.patient_external_id = p.patient_external_id
+      left join latest_compliance c
+        on c.tenant_slug = p.tenant_slug
+       and c.patient_external_id = p.patient_external_id
+      where p.tenant_slug = $1
+      order by p.patient_external_id asc
+      `,
+      [PILOT_TENANT_ID]
+    );
+
+    const rows = patientsResult.rows.map(pilot20BuildRescueRow);
+
+    let importSummary = {
+      upload_batches: 0,
+      total_import_rows: 0,
+      total_updated: 0,
+      total_skipped: 0,
+      total_errors: 0,
+      last_upload_at: null
+    };
+
+    try {
+      await pilot20EnsureImportAuditTables(db);
+
+      const importResult = await query(
+        db,
+        `
+        select
+          count(*)::integer as upload_batches,
+          coalesce(sum(total_rows), 0)::integer as total_import_rows,
+          coalesce(sum(updated_count), 0)::integer as total_updated,
+          coalesce(sum(skipped_count), 0)::integer as total_skipped,
+          coalesce(sum(error_count), 0)::integer as total_errors,
+          max(created_at) as last_upload_at
+        from public.pilot20_import_batches
+        where tenant_slug = $1
+        `,
+        [PILOT_TENANT_ID]
+      );
+
+      if (importResult.rows && importResult.rows.length > 0) {
+        importSummary = importResult.rows[0];
+      }
+    } catch (error) {
+      importSummary.audit_warning = error.message;
+    }
+
+    const totalPatients = rows.length;
+    const already80h = rows.filter((r) => r.is_80h_compliant).length;
+    const below80h = rows.filter((r) => !r.is_80h_compliant).length;
+    const safe = rows.filter((r) => r.risk_level === "SAFE").length;
+    const onTrack = rows.filter((r) => r.risk_level === "ON_TRACK").length;
+    const watch = rows.filter((r) => r.risk_level === "WATCH").length;
+    const rescue = rows.filter((r) => r.risk_level === "RESCUE").length;
+    const critical = rows.filter((r) => r.risk_level === "CRITICAL").length;
+
+    const highAhi = rows.filter((r) => Number(r.ahi_avg_30d || 0) > 10).length;
+    const highLeak = rows.filter((r) => Number(r.leak_avg_30d || 0) > 24).length;
+    const actionable = watch + rescue + critical;
+    const urgent = rescue + critical;
+
+    const complianceRate = totalPatients > 0 ? Math.round((already80h / totalPatients) * 1000) / 10 : 0;
+    const riskRate = totalPatients > 0 ? Math.round((urgent / totalPatients) * 1000) / 10 : 0;
+
+    const topRiskRows = rows
+      .slice()
+      .sort((a, b) => {
+        if ((b.risk_order || 0) !== (a.risk_order || 0)) return (b.risk_order || 0) - (a.risk_order || 0);
+        return (b.required_daily_hours || 0) - (a.required_daily_hours || 0);
+      })
+      .slice(0, 10);
+
+    let commercialConclusion = "Pilot data not sufficient yet. Enter patients and upload AirView usage data.";
+    if (totalPatients > 0 && importSummary.upload_batches > 0) {
+      if (urgent > 0) {
+        commercialConclusion =
+          "The platform identified urgent CPAP compliance risk before month end. These patients should be contacted first.";
+      } else if (watch > 0) {
+        commercialConclusion =
+          "The platform identified patients needing monitoring before month end.";
+      } else {
+        commercialConclusion =
+          "The pilot population is currently under control. Continue periodic AirView uploads.";
+      }
+    }
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_monthly_80h_commercial_value_report",
+      summary: {
+        total_patients: totalPatients,
+        already_80h: already80h,
+        below_80h: below80h,
+        safe,
+        on_track: onTrack,
+        watch,
+        rescue,
+        critical,
+        urgent,
+        actionable,
+        high_ahi: highAhi,
+        high_leak: highLeak,
+        compliance_rate: complianceRate,
+        urgent_risk_rate: riskRate
+      },
+      import_summary: importSummary,
+      commercial_conclusion: commercialConclusion,
+      top_risk_rows: topRiskRows
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_monthly_value_report_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 

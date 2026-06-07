@@ -58,6 +58,7 @@ import Pilot20ComplianceRescueMonitorPage from "./pages/Pilot20ComplianceRescueM
 import Pilot20UsageUploadPage from "./pages/Pilot20UsageUploadPage";
 import Pilot20ImportHistoryPage from "./pages/Pilot20ImportHistoryPage";
 import Pilot20UnmatchedDevicesPage from "./pages/Pilot20UnmatchedDevicesPage";
+import Pilot20MonthlyValueReportPage from "./pages/Pilot20MonthlyValueReportPage";
 
 const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
@@ -1223,6 +1224,7 @@ function AppRoutes() {
               <Route path="/pilot20/usage-upload" element={<Pilot20UsageUploadPage />} />
               <Route path="/pilot20/import-history" element={<Pilot20ImportHistoryPage />} />
               <Route path="/pilot20/unmatched-devices" element={<Pilot20UnmatchedDevicesPage />} />
+              <Route path="/pilot20/monthly-value-report" element={<Pilot20MonthlyValueReportPage />} />
       </Routes>
   );
 }
@@ -1787,6 +1789,7 @@ const miniPre = {
   maxHeight: 220,
   fontSize: 11
 };
+
 
 
 
