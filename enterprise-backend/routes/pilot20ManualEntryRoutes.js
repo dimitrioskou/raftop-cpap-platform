@@ -530,7 +530,219 @@ router.post("/patients", async (req, res) => {
   }
 });
 
+
+function pilot20ParseDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function pilot20Number(value, fallback = 0) {
+  const n = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function pilot20DaysInMonth(date) {
+  const d = pilot20ParseDate(date) || new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+}
+
+function pilot20DayOfMonth(date) {
+  const d = pilot20ParseDate(date) || new Date();
+  return d.getDate();
+}
+
+function pilot20Round(value, digits = 1) {
+  const factor = Math.pow(10, digits);
+  return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function pilot20BuildRescueRow(row) {
+  const targetHours = 80;
+
+  const currentHours = pilot20Number(row.month_usage_hours || row.usage_hours_30d || row.usage_hours);
+  const monthStart = row.month_start || row.record_date || row.last_data_date || new Date().toISOString().slice(0, 10);
+  const lastDataDate = row.record_date || row.last_data_date || new Date().toISOString().slice(0, 10);
+
+  const totalDays = pilot20DaysInMonth(monthStart);
+  const elapsedDays = Math.max(1, Math.min(totalDays, pilot20DayOfMonth(lastDataDate)));
+  const daysLeft = Math.max(0, totalDays - elapsedDays);
+
+  const expectedByToday = (targetHours / totalDays) * elapsedDays;
+  const remainingHours = Math.max(0, targetHours - currentHours);
+  const requiredDailyHours = daysLeft > 0 ? remainingHours / daysLeft : remainingHours;
+  const projectedEndMonthHours = elapsedDays > 0 ? (currentHours / elapsedDays) * totalDays : 0;
+
+  const ahi = pilot20Number(row.ahi_avg_30d);
+  const leak = pilot20Number(row.leak_avg_30d);
+
+  let risk_level = "SAFE";
+  let action = "No action required";
+  let score = 0;
+
+  if (currentHours >= targetHours) {
+    risk_level = "SAFE";
+    action = "Already reached 80h";
+    score = 0;
+  } else if (projectedEndMonthHours >= targetHours && currentHours >= expectedByToday * 0.9) {
+    risk_level = "ON_TRACK";
+    action = "Monitor only";
+    score = 20;
+  } else if (requiredDailyHours <= 3) {
+    risk_level = "WATCH";
+    action = "Check within 48 hours";
+    score = 40;
+  } else if (requiredDailyHours <= 6) {
+    risk_level = "RESCUE";
+    action = "Call today";
+    score = 70;
+  } else {
+    risk_level = "CRITICAL";
+    action = "Urgent rescue call";
+    score = 90;
+  }
+
+  if (ahi > 10) {
+    score += 10;
+    if (risk_level === "SAFE" || risk_level === "ON_TRACK") {
+      action = "Therapy review: high AHI";
+    }
+  }
+
+  if (leak > 24) {
+    score += 10;
+    if (risk_level === "SAFE" || risk_level === "ON_TRACK") {
+      action = "Mask/leak review";
+    }
+  }
+
+  const riskOrder = {
+    CRITICAL: 5,
+    RESCUE: 4,
+    WATCH: 3,
+    ON_TRACK: 2,
+    SAFE: 1
+  };
+
+  return {
+    tenant_id: PILOT_TENANT_ID,
+    patient_external_id: row.patient_external_id,
+    patient_code: row.patient_code,
+    device_serial: row.device_serial,
+    device_model: row.device_model,
+    doctor_external_id: row.doctor_external_id,
+    branch_code: row.branch_code,
+    month_start: monthStart,
+    last_data_date: lastDataDate,
+    total_days_in_month: totalDays,
+    elapsed_days: elapsedDays,
+    days_left: daysLeft,
+    current_hours: pilot20Round(currentHours),
+    target_hours: targetHours,
+    expected_by_today: pilot20Round(expectedByToday),
+    remaining_hours: pilot20Round(remainingHours),
+    required_daily_hours: pilot20Round(requiredDailyHours),
+    projected_end_month_hours: pilot20Round(projectedEndMonthHours),
+    ahi_avg_30d: pilot20Round(ahi),
+    leak_avg_30d: pilot20Round(leak),
+    days_used_30d: row.days_used_30d || 0,
+    risk_level,
+    risk_order: riskOrder[risk_level] || 0,
+    atlas_action: action,
+    atlas_score: Math.min(100, score),
+    is_80h_compliant: currentHours >= targetHours
+  };
+}
+
+router.get("/rescue-monitor", async (req, res) => {
+  try {
+    const db = getDb(req);
+
+    const result = await query(
+      db,
+      `
+      with latest_compliance as (
+        select distinct on (tenant_slug, patient_external_id)
+          tenant_slug,
+          patient_external_id,
+          device_serial,
+          record_date,
+          month_start,
+          usage_hours,
+          month_usage_hours,
+          usage_hours_30d,
+          days_used_30d,
+          ahi_avg_30d,
+          leak_avg_30d
+        from public.compliance_nights
+        where tenant_slug = $1
+        order by tenant_slug, patient_external_id, record_date desc
+      )
+      select
+        p.patient_external_id,
+        p.patient_code,
+        p.doctor_external_id,
+        p.branch_code,
+        p.setup_date,
+        d.device_serial,
+        d.device_model,
+        d.last_data_date,
+        c.record_date,
+        c.month_start,
+        c.usage_hours,
+        c.month_usage_hours,
+        c.usage_hours_30d,
+        c.days_used_30d,
+        c.ahi_avg_30d,
+        c.leak_avg_30d
+      from public.patients p
+      left join public.devices d
+        on d.tenant_slug = p.tenant_slug
+       and d.patient_external_id = p.patient_external_id
+      left join latest_compliance c
+        on c.tenant_slug = p.tenant_slug
+       and c.patient_external_id = p.patient_external_id
+      where p.tenant_slug = $1
+      order by p.patient_external_id asc
+      `,
+      [PILOT_TENANT_ID]
+    );
+
+    const rows = result.rows.map(pilot20BuildRescueRow).sort((a, b) => {
+      if (b.risk_order !== a.risk_order) return b.risk_order - a.risk_order;
+      return b.required_daily_hours - a.required_daily_hours;
+    });
+
+    const summary = {
+      total_patients: rows.length,
+      already_80h: rows.filter((r) => r.risk_level === "SAFE").length,
+      on_track: rows.filter((r) => r.risk_level === "ON_TRACK").length,
+      watch: rows.filter((r) => r.risk_level === "WATCH").length,
+      rescue: rows.filter((r) => r.risk_level === "RESCUE").length,
+      critical: rows.filter((r) => r.risk_level === "CRITICAL").length,
+      below_80h: rows.filter((r) => !r.is_80h_compliant).length
+    };
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      target_hours: 80,
+      module: "pilot20_80h_compliance_pace_rescue_monitor",
+      summary,
+      rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_rescue_monitor_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 

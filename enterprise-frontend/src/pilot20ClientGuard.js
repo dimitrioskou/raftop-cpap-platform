@@ -1,5 +1,6 @@
 ﻿const PILOT20_TENANT = "raftopoulos-pilot-20";
 const PILOT20_PATH = "/pilot20/manual-entry";
+const PILOT20_RESCUE_PATH = "/pilot20/rescue-monitor";
 const LOGIN_PATH = "/login";
 const LOCK_KEY = "RAFTOP_PILOT20_BUYER_LOCK";
 
@@ -211,3 +212,4 @@ if (typeof window !== "undefined") {
   setTimeout(enforcePilot20Isolation, 0);
   setInterval(enforcePilot20Isolation, 500);
 }
+

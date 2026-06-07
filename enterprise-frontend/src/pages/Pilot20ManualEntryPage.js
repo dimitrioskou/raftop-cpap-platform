@@ -180,6 +180,11 @@ export default function Pilot20ManualEntryPage() {
           Clean 2-month pilot environment for up to 20 pseudonymized CPAP patients.
           Enter only patient code, device details and CPAP usage metrics.
         </p>
+              <div style={{ marginTop: 16 }}>
+          <a href="/pilot20/rescue-monitor" style={{ background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 18px", fontWeight: 900, textDecoration: "none", display: "inline-block" }}>
+            Open 80h Rescue Monitor
+          </a>
+        </div>
       </header>
 
       {authRequired && (
