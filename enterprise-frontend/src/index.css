@@ -18,3 +18,30 @@ select,
 textarea {
   font: inherit;
 }
+/* RAFTOP Phase 108F - Greek-safe production typography */
+:root {
+  font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body,
+button,
+input,
+select,
+textarea,
+table,
+th,
+td {
+  font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif !important;
+}
+
+a {
+  font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif !important;
+}
+
+.pilot20-page,
+.pilot20-page * {
+  font-family: "Segoe UI", "Noto Sans", "Roboto", "Arial", sans-serif !important;
+}

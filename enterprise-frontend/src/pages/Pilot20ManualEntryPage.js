@@ -145,7 +145,7 @@ export default function Pilot20ManualEntryPage() {
   const remainingSlots = summary?.remaining_slots ?? Math.max(0, 20 - patients.length);
 
   return (
-    <div style={{ padding: 24, maxWidth: 1180, margin: "0 auto" }}>
+    <div className="pilot20-page" style={{ padding: 24, maxWidth: 1180, margin: "0 auto" }}>
       <header style={{ marginBottom: 24 }}>
         <p style={{ margin: 0, color: "#64748b", fontWeight: 700 }}>
           RAFTOP CPAP CARE Pro
@@ -418,3 +418,4 @@ const tdStyle = {
   padding: "10px 8px",
   borderBottom: "1px solid #f1f5f9"
 };
+
