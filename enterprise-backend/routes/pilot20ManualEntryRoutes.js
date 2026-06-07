@@ -2010,7 +2010,299 @@ router.get("/rolling-80h-early-warning", async (req, res) => {
   }
 });
 
+
+function pilot20RolloutSplitCsvLine(line, delimiter) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === delimiter && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function pilot20RolloutDetectDelimiter(headerLine) {
+  const commaCount = (String(headerLine || "").match(/,/g) || []).length;
+  const semicolonCount = (String(headerLine || "").match(/;/g) || []).length;
+  return semicolonCount > commaCount ? ";" : ",";
+}
+
+function pilot20ParseRolloutCsv(csvText) {
+  const cleanText = String(csvText || "").replace(/^\uFEFF/, "");
+  const lines = cleanText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length < 2) {
+    return {
+      ok: false,
+      error: "csv_requires_header_and_at_least_one_data_row",
+      headers: [],
+      rows: []
+    };
+  }
+
+  const delimiter = pilot20RolloutDetectDelimiter(lines[0]);
+  const headers = pilot20RolloutSplitCsvLine(lines[0], delimiter).map((h) => h.trim());
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const values = pilot20RolloutSplitCsvLine(lines[i], delimiter);
+    const row = {};
+
+    headers.forEach((header, index) => {
+      row[header] = values[index] || "";
+    });
+
+    row.__line = i + 1;
+    rows.push(row);
+  }
+
+  return {
+    ok: true,
+    delimiter,
+    headers,
+    rows
+  };
+}
+
+function pilot20NormalizeRolloutHeader(header) {
+  return String(header || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-\/().%]+/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function pilot20RolloutGet(row, header) {
+  return String(row[header] || "").trim();
+}
+
+function pilot20ValidateRolloutCsv(parsed) {
+  const requiredHeaders = [
+    "patient_external_id",
+    "patient_code",
+    "device_serial",
+    "device_model",
+    "setup_date",
+    "doctor_external_id",
+    "branch_code"
+  ];
+
+  const forbiddenHeaders = [
+    "first_name",
+    "last_name",
+    "full_name",
+    "patient_name",
+    "name",
+    "surname",
+    "phone",
+    "mobile",
+    "email",
+    "amka",
+    "address",
+    "date_of_birth",
+    "birth_date",
+    "dob"
+  ];
+
+  const headers = parsed.headers || [];
+  const normalizedHeaders = headers.map(pilot20NormalizeRolloutHeader);
+
+  const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
+  const forbiddenDetected = [];
+
+  headers.forEach((header) => {
+    const normalized = pilot20NormalizeRolloutHeader(header);
+    forbiddenHeaders.forEach((forbidden) => {
+      if (normalized === pilot20NormalizeRolloutHeader(forbidden)) {
+        forbiddenDetected.push(header);
+      }
+    });
+  });
+
+  const seenPatientExternalIds = new Map();
+  const seenPatientCodes = new Map();
+  const seenDeviceSerials = new Map();
+
+  const rowResults = [];
+  let validRows = 0;
+  let warningRows = 0;
+  let errorRows = 0;
+
+  parsed.rows.forEach((row) => {
+    const issues = [];
+    const warnings = [];
+
+    const patientExternalId = pilot20RolloutGet(row, "patient_external_id");
+    const patientCode = pilot20RolloutGet(row, "patient_code");
+    const deviceSerial = pilot20RolloutGet(row, "device_serial");
+    const deviceModel = pilot20RolloutGet(row, "device_model");
+    const setupDate = pilot20RolloutGet(row, "setup_date");
+    const doctorExternalId = pilot20RolloutGet(row, "doctor_external_id");
+    const branchCode = pilot20RolloutGet(row, "branch_code");
+
+    if (!patientExternalId) issues.push("patient_external_id_required");
+    if (!patientCode) issues.push("patient_code_required");
+    if (!deviceSerial) issues.push("device_serial_required");
+    if (!setupDate) issues.push("setup_date_required");
+
+    if (patientExternalId) {
+      if (seenPatientExternalIds.has(patientExternalId)) {
+        issues.push("duplicate_patient_external_id");
+      } else {
+        seenPatientExternalIds.set(patientExternalId, row.__line);
+      }
+    }
+
+    if (patientCode) {
+      if (seenPatientCodes.has(patientCode)) {
+        issues.push("duplicate_patient_code");
+      } else {
+        seenPatientCodes.set(patientCode, row.__line);
+      }
+    }
+
+    if (deviceSerial) {
+      if (seenDeviceSerials.has(deviceSerial)) {
+        issues.push("duplicate_device_serial");
+      } else {
+        seenDeviceSerials.set(deviceSerial, row.__line);
+      }
+    }
+
+    if (setupDate) {
+      const date = new Date(setupDate);
+      if (Number.isNaN(date.getTime())) {
+        issues.push("invalid_setup_date");
+      }
+    }
+
+    if (!doctorExternalId) warnings.push("doctor_external_id_missing");
+    if (!branchCode) warnings.push("branch_code_missing");
+    if (!deviceModel) warnings.push("device_model_missing");
+
+    let status = "valid";
+    if (issues.length > 0) {
+      status = "error";
+      errorRows += 1;
+    } else if (warnings.length > 0) {
+      status = "warning";
+      warningRows += 1;
+      validRows += 1;
+    } else {
+      validRows += 1;
+    }
+
+    rowResults.push({
+      line: row.__line,
+      status,
+      patient_external_id: patientExternalId,
+      patient_code: patientCode,
+      device_serial: deviceSerial,
+      setup_date: setupDate,
+      doctor_external_id: doctorExternalId,
+      branch_code: branchCode,
+      issues,
+      warnings
+    });
+  });
+
+  const hardBlockers = [];
+
+  if (missingHeaders.length > 0) {
+    hardBlockers.push("missing_required_headers");
+  }
+
+  if (forbiddenDetected.length > 0) {
+    hardBlockers.push("direct_identifier_headers_detected");
+  }
+
+  if (errorRows > 0) {
+    hardBlockers.push("row_errors_detected");
+  }
+
+  const readyForRollout = hardBlockers.length === 0;
+
+  return {
+    delimiter: parsed.delimiter,
+    total_rows: parsed.rows.length,
+    valid_rows: validRows,
+    warning_rows: warningRows,
+    error_rows: errorRows,
+    missing_headers: missingHeaders,
+    forbidden_headers: Array.from(new Set(forbiddenDetected)),
+    duplicate_patient_external_ids: Array.from(seenPatientExternalIds.keys()).length,
+    duplicate_patient_codes: Array.from(seenPatientCodes.keys()).length,
+    duplicate_device_serials: Array.from(seenDeviceSerials.keys()).length,
+    hard_blockers: hardBlockers,
+    ready_for_rollout: readyForRollout,
+    rows: rowResults.slice(0, 500)
+  };
+}
+
+
+router.get("/production-rollout/template", async (req, res) => {
+  res.type("text/csv").send(
+    [
+      "patient_external_id,patient_code,device_serial,device_model,setup_date,doctor_external_id,branch_code",
+      "P-000001,CPAP-000001,RS-DEVICE-000001,AirSense 10,2026-06-01,DR-001,ATHENS"
+    ].join("\n")
+  );
+});
+
+router.post("/production-rollout/validate", async (req, res) => {
+  try {
+    const csvText = req.body?.csv_text || req.body?.csvText || "";
+
+    const parsed = pilot20ParseRolloutCsv(csvText);
+
+    if (!parsed.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: parsed.error
+      });
+    }
+
+    const validation = pilot20ValidateRolloutCsv(parsed);
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_7000_patient_rollout_import_validation",
+      message: validation.ready_for_rollout
+        ? "Rollout file is structurally ready for controlled production import."
+        : "Rollout file has blockers. Fix errors before production import.",
+      validation
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_production_rollout_validation_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 

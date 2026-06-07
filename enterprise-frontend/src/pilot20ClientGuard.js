@@ -5,6 +5,7 @@ const PILOT20_UPLOAD_PATH = "/pilot20/usage-upload";
 const PILOT20_IMPORT_HISTORY_PATH = "/pilot20/import-history";
 const PILOT20_UNMATCHED_DEVICES_PATH = "/pilot20/unmatched-devices";
 const PILOT20_ROLLING_80H_REPORT_PATH = "/pilot20/rolling-80h-report";
+const PILOT20_PRODUCTION_ROLLOUT_IMPORT_PATH = "/pilot20/production-rollout-import";
 const PILOT20_MONTHLY_VALUE_REPORT_PATH = "/pilot20/monthly-value-report";
 const LOGIN_PATH = "/login";
 const LOCK_KEY = "RAFTOP_PILOT20_BUYER_LOCK";
@@ -143,7 +144,7 @@ function isPilot20User() {
 }
 
 function isAllowedPilot20Path(pathname) {
-  return pathname === PILOT20_PATH || pathname === PILOT20_RESCUE_PATH || pathname === PILOT20_UPLOAD_PATH || pathname === PILOT20_IMPORT_HISTORY_PATH || pathname === PILOT20_UNMATCHED_DEVICES_PATH || pathname === PILOT20_ROLLING_80H_REPORT_PATH || pathname.startsWith(LOGIN_PATH);
+  return pathname === PILOT20_PATH || pathname === PILOT20_RESCUE_PATH || pathname === PILOT20_UPLOAD_PATH || pathname === PILOT20_IMPORT_HISTORY_PATH || pathname === PILOT20_UNMATCHED_DEVICES_PATH || pathname === PILOT20_ROLLING_80H_REPORT_PATH || pathname === PILOT20_PRODUCTION_ROLLOUT_IMPORT_PATH || pathname.startsWith(LOGIN_PATH);
 }
 
 function detectPilotLoginFormInput() {
@@ -217,6 +218,7 @@ if (typeof window !== "undefined") {
   setTimeout(enforcePilot20Isolation, 0);
   setInterval(enforcePilot20Isolation, 500);
 }
+
 
 
 

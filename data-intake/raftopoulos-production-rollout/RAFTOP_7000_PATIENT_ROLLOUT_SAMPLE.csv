@@ -1,0 +1,4 @@
+﻿patient_external_id,patient_code,device_serial,device_model,setup_date,doctor_external_id,branch_code
+P-000001,CPAP-000001,RS-DEVICE-000001,AirSense 10,2026-06-01,DR-001,ATHENS
+P-000002,CPAP-000002,RS-DEVICE-000002,AirSense 11,2026-06-03,DR-002,PIRAEUS
+P-000003,CPAP-000003,RS-DEVICE-000003,AirSense 10,2026-06-07,DR-001,ATHENS
