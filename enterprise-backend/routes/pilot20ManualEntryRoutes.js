@@ -870,6 +870,180 @@ router.get("/usage-template", async (req, res) => {
   );
 });
 
+
+function pilot20NormalizeHeaderName(header) {
+  return String(header || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-\/().%]+/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function pilot20FirstOfMonth(dateText) {
+  const date = new Date(dateText);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-01`;
+}
+
+function pilot20FindHeader(headers, aliases) {
+  const normalizedHeaders = headers.map((header) => ({
+    original: header,
+    normalized: pilot20NormalizeHeaderName(header)
+  }));
+
+  const normalizedAliases = aliases.map(pilot20NormalizeHeaderName);
+
+  const match = normalizedHeaders.find((item) => normalizedAliases.includes(item.normalized));
+  return match ? match.original : "";
+}
+
+function pilot20NormalizeAirViewUsageCsv(parsed) {
+  const originalHeaders = parsed.headers || [];
+
+  const aliasMap = {
+    device_serial: [
+      "device_serial",
+      "device serial",
+      "serial number",
+      "serial no",
+      "serial",
+      "device number",
+      "device id",
+      "s/n",
+      "sn"
+    ],
+    month_start: [
+      "month_start",
+      "month start",
+      "start date",
+      "period start",
+      "compliance start",
+      "report start",
+      "from date",
+      "date from"
+    ],
+    last_data_date: [
+      "last_data_date",
+      "last data date",
+      "last data",
+      "end date",
+      "period end",
+      "compliance end",
+      "report end",
+      "to date",
+      "date to",
+      "therapy date",
+      "data date"
+    ],
+    month_usage_hours: [
+      "month_usage_hours",
+      "month usage hours",
+      "usage hours",
+      "used hours",
+      "total usage hours",
+      "total hours",
+      "hours used",
+      "usage hrs",
+      "therapy hours",
+      "total therapy hours"
+    ],
+    usage_hours_30d: [
+      "usage_hours_30d",
+      "usage hours 30d",
+      "30 day usage hours",
+      "30d usage hours",
+      "usage hours",
+      "used hours",
+      "total usage hours",
+      "therapy hours"
+    ],
+    days_used_30d: [
+      "days_used_30d",
+      "days used 30d",
+      "days used",
+      "used days",
+      "usage days",
+      "days with usage"
+    ],
+    ahi_avg_30d: [
+      "ahi_avg_30d",
+      "ahi avg 30d",
+      "ahi",
+      "average ahi",
+      "ahi average",
+      "apnea hypopnea index"
+    ],
+    leak_avg_30d: [
+      "leak_avg_30d",
+      "leak avg 30d",
+      "leak",
+      "leak average",
+      "95th percentile leak",
+      "95 percentile leak",
+      "95% leak",
+      "mask leak",
+      "leak 95"
+    ]
+  };
+
+  const resolved = {};
+  Object.keys(aliasMap).forEach((canonical) => {
+    resolved[canonical] = pilot20FindHeader(originalHeaders, aliasMap[canonical]);
+  });
+
+  const minimalMissing = [];
+  if (!resolved.device_serial) minimalMissing.push("device_serial");
+  if (!resolved.last_data_date) minimalMissing.push("last_data_date");
+  if (!resolved.month_usage_hours) minimalMissing.push("month_usage_hours");
+
+  const rows = parsed.rows.map((sourceRow) => {
+    const get = (canonical) => {
+      const header = resolved[canonical];
+      if (!header) return "";
+      return sourceRow[header] || "";
+    };
+
+    const lastDataDate = pilot20ToDateText(get("last_data_date"));
+    const monthStart =
+      pilot20ToDateText(get("month_start")) ||
+      pilot20FirstOfMonth(lastDataDate);
+
+    const monthUsageHours = get("month_usage_hours");
+    const usageHours30d = get("usage_hours_30d") || monthUsageHours;
+
+    return {
+      __line: sourceRow.__line,
+      device_serial: pilot20CleanValue(get("device_serial")),
+      month_start: monthStart,
+      last_data_date: lastDataDate,
+      month_usage_hours: monthUsageHours,
+      usage_hours_30d: usageHours30d,
+      days_used_30d: get("days_used_30d") || "0",
+      ahi_avg_30d: get("ahi_avg_30d") || "0",
+      leak_avg_30d: get("leak_avg_30d") || "0"
+    };
+  });
+
+  return {
+    originalHeaders,
+    resolvedHeaders: resolved,
+    headers: [
+      "device_serial",
+      "month_start",
+      "last_data_date",
+      "month_usage_hours",
+      "usage_hours_30d",
+      "days_used_30d",
+      "ahi_avg_30d",
+      "leak_avg_30d"
+    ],
+    missingHeaders: minimalMissing,
+    rows
+  };
+}
+
 router.post("/usage-upload", async (req, res) => {
   try {
     const db = getDb(req);
@@ -884,7 +1058,11 @@ router.post("/usage-upload", async (req, res) => {
       });
     }
 
-    const missingHeaders = pilot20RequireUsageHeaders(parsed.headers);
+        const airViewMapping = pilot20NormalizeAirViewUsageCsv(parsed);
+    parsed.headers = airViewMapping.headers;
+    parsed.rows = airViewMapping.rows;
+
+    const missingHeaders = airViewMapping.missingHeaders;
 
     if (missingHeaders.length > 0) {
       return res.status(400).json({
@@ -894,7 +1072,7 @@ router.post("/usage-upload", async (req, res) => {
       });
     }
 
-    const forbiddenHeaders = pilot20HasForbiddenCsvHeaders(parsed.headers);
+    const forbiddenHeaders = pilot20HasForbiddenCsvHeaders(airViewMapping.originalHeaders || parsed.headers);
 
     if (forbiddenHeaders.length > 0) {
       return res.status(400).json({
@@ -1044,7 +1222,7 @@ router.post("/usage-upload", async (req, res) => {
     res.json({
       ok: true,
       tenant_id: PILOT_TENANT_ID,
-      module: "pilot20_automatic_cpap_usage_update_engine",
+      module: "pilot20_automatic_cpap_usage_update_engine_airview_mapper",
       message: "Usage CSV processed. Rescue Monitor recalculates automatically from latest compliance records.",
       report
     });
@@ -1058,6 +1236,7 @@ router.post("/usage-upload", async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 

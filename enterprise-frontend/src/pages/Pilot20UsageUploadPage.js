@@ -87,7 +87,7 @@ export default function Pilot20UsageUploadPage() {
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>RAFTOP CPAP CARE Pro</p>
-          <h1 style={titleStyle}>Automatic CPAP Usage Update</h1>
+          <h1 style={titleStyle}>AirView / CPAP Usage Update</h1>
           <p style={subtitleStyle}>
             Enter Pilot 20 patients once. Then upload usage CSV exports to automatically update compliance, ATLAS and the 80h Rescue Monitor.
           </p>
@@ -110,7 +110,7 @@ export default function Pilot20UsageUploadPage() {
       <section style={panelStyle}>
         <h2 style={{ marginTop: 0, color: "#0f172a" }}>Upload usage CSV</h2>
         <p style={{ color: "#475569", lineHeight: 1.6 }}>
-          Required columns: device_serial, month_start, last_data_date, month_usage_hours,
+          Accepted formats: standard Pilot20 CSV or AirView-style export. Required matching key: device serial. Standard columns: device_serial, month_start, last_data_date, month_usage_hours,
           usage_hours_30d, days_used_30d, ahi_avg_30d, leak_avg_30d.
         </p>
 
@@ -178,7 +178,7 @@ export default function Pilot20UsageUploadPage() {
           <li>Enter the 20 pilot patients once in Patient Entry.</li>
           <li>Export or prepare a CPAP usage CSV every few days.</li>
           <li>Upload the CSV here.</li>
-          <li>The platform updates usage automatically by device serial.</li>
+          <li>The platform maps AirView-style columns automatically and updates usage by device serial.</li>
           <li>Open Rescue Monitor to see who may miss 80 hours before month end.</li>
         </ol>
       </section>
@@ -346,3 +346,4 @@ const tdStyle = {
   borderBottom: "1px solid #f1f5f9",
   verticalAlign: "top"
 };
+
