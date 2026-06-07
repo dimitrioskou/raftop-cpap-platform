@@ -350,3 +350,4 @@ const infoStyle = {
   borderRadius: 12,
   fontWeight: 800
 };
+

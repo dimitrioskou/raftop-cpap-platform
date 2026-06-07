@@ -1521,7 +1521,66 @@ router.get("/import-history/:batchId", async (req, res) => {
   }
 });
 
+
+router.get("/unmatched-devices", async (req, res) => {
+  try {
+    const db = getDb(req);
+    await pilot20EnsureImportAuditTables(db);
+
+    const result = await query(
+      db,
+      `
+      select
+        r.device_serial,
+        count(*)::integer as occurrence_count,
+        max(r.created_at) as last_seen_at,
+        max(b.id)::integer as latest_batch_id,
+        max(b.filename) as latest_filename,
+        max(r.reason) as latest_reason,
+        max(r.line_number)::integer as latest_line_number
+      from public.pilot20_import_batch_rows r
+      join public.pilot20_import_batches b
+        on b.id = r.batch_id
+      where b.tenant_slug = $1
+        and r.status = 'skipped'
+        and coalesce(r.device_serial, '') <> ''
+        and (
+          r.reason = 'device_not_found_in_pilot20'
+          or r.reason ilike '%device_not_found%'
+          or r.reason ilike '%not_found%'
+        )
+      group by r.device_serial
+      order by max(r.created_at) desc, count(*) desc
+      limit 200
+      `,
+      [PILOT_TENANT_ID]
+    );
+
+    const rows = result.rows.map((row) => ({
+      ...row,
+      resolution_action:
+        "Check that this AirView serial number exactly matches the Device Serial entered in Patient Entry. If it is a real pilot device, correct the Patient Entry device serial or re-upload usage data after matching.",
+      severity: Number(row.occurrence_count || 0) >= 2 ? "REPEATED" : "NEW"
+    }));
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_unmatched_devices_resolution_center",
+      total_unmatched_devices: rows.length,
+      rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_unmatched_devices_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 
