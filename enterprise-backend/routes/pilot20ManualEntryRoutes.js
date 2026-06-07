@@ -1743,7 +1743,275 @@ router.get("/monthly-value-report", async (req, res) => {
   }
 });
 
+
+function pilot20DateOnly(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+}
+
+function pilot20AddDays(date, days) {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function pilot20DiffDaysInclusive(start, end) {
+  if (!start || !end) return 0;
+  const ms = 24 * 60 * 60 * 1000;
+  const diff = Math.floor((end.getTime() - start.getTime()) / ms) + 1;
+  return Math.max(1, diff);
+}
+
+function pilot20Round1(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 10) / 10;
+}
+
+function pilot20BuildRolling80hEarlyWarningRow(row) {
+  const targetHours = 80;
+  const windowDays = 30;
+
+  const setupDate = pilot20DateOnly(row.setup_date);
+  const airViewPeriodStart = pilot20DateOnly(row.month_start);
+  const lastDataDate = pilot20DateOnly(row.last_data_date || row.record_date);
+  const today = pilot20DateOnly(new Date());
+
+  const periodStart = airViewPeriodStart || setupDate || lastDataDate || today;
+  const effectiveDate = lastDataDate || today;
+  const periodEnd = pilot20AddDays(periodStart, windowDays - 1);
+
+  const daysElapsed = Math.min(windowDays, pilot20DiffDaysInclusive(periodStart, effectiveDate));
+  const daysRemainingRaw = Math.floor((periodEnd.getTime() - effectiveDate.getTime()) / (24 * 60 * 60 * 1000));
+  const daysRemaining = Math.max(0, daysRemainingRaw);
+
+  const currentHours = pilot20Round1(
+    row.month_usage_hours ??
+    row.usage_hours_30d ??
+    row.usage_hours ??
+    0
+  );
+
+  const expectedHoursToday = pilot20Round1(Math.min(targetHours, (targetHours / windowDays) * daysElapsed));
+  const remainingHours = pilot20Round1(Math.max(0, targetHours - currentHours));
+
+  const requiredDailyHours = currentHours >= targetHours
+    ? 0
+    : daysRemaining > 0
+      ? pilot20Round1(remainingHours / daysRemaining)
+      : 99;
+
+  const averageDailyHours = daysElapsed > 0
+    ? pilot20Round1(currentHours / daysElapsed)
+    : 0;
+
+  const projectedEndWindowHours = pilot20Round1(averageDailyHours * windowDays);
+  const paceGapHours = pilot20Round1(currentHours - expectedHoursToday);
+
+  const ahi = pilot20Round1(row.ahi_avg_30d || 0);
+  const leak = pilot20Round1(row.leak_avg_30d || 0);
+
+  let riskLevel = "WATCH";
+  let riskOrder = 3;
+  let atlasAction = "Monitor patient.";
+
+  if (currentHours >= targetHours) {
+    riskLevel = "SAFE";
+    riskOrder = 1;
+    atlasAction = "No immediate compliance action required.";
+  } else if (daysRemaining <= 0) {
+    riskLevel = "CRITICAL";
+    riskOrder = 5;
+    atlasAction = "Compliance window ended or ends today. Immediate review required.";
+  } else if (projectedEndWindowHours >= targetHours && requiredDailyHours <= 4) {
+    riskLevel = "ON_TRACK";
+    riskOrder = 2;
+    atlasAction = "Continue monitoring. Patient is on pace.";
+  } else if (requiredDailyHours <= 3.5 && projectedEndWindowHours >= 65) {
+    riskLevel = "WATCH";
+    riskOrder = 3;
+    atlasAction = "Soft reminder / monitor closely.";
+  } else if (requiredDailyHours <= 6) {
+    riskLevel = "RESCUE";
+    riskOrder = 4;
+    atlasAction = "Call patient soon. Compliance can still be rescued.";
+  } else {
+    riskLevel = "CRITICAL";
+    riskOrder = 5;
+    atlasAction = "Call patient urgently. High risk of missing 80h.";
+  }
+
+  const highAhi = ahi > 10;
+  const highLeak = leak > 24;
+
+  if (riskLevel !== "SAFE" && highLeak) {
+    atlasAction = atlasAction + " Check mask leak.";
+  }
+
+  if (riskLevel !== "SAFE" && highAhi) {
+    atlasAction = atlasAction + " Review high AHI.";
+  }
+
+  return {
+    patient_external_id: row.patient_external_id,
+    patient_code: row.patient_code,
+    doctor_external_id: row.doctor_external_id,
+    branch_code: row.branch_code,
+    device_serial: row.device_serial,
+    device_model: row.device_model,
+    setup_date: row.setup_date,
+    period_start: periodStart ? periodStart.toISOString().slice(0, 10) : null,
+    period_end: periodEnd ? periodEnd.toISOString().slice(0, 10) : null,
+    last_data_date: effectiveDate ? effectiveDate.toISOString().slice(0, 10) : null,
+    days_elapsed: daysElapsed,
+    days_remaining: daysRemaining,
+    current_hours: currentHours,
+    expected_hours_today: expectedHoursToday,
+    pace_gap_hours: paceGapHours,
+    remaining_hours: remainingHours,
+    required_daily_hours: requiredDailyHours,
+    average_daily_hours: averageDailyHours,
+    projected_end_window_hours: projectedEndWindowHours,
+    is_80h_compliant: currentHours >= targetHours,
+    risk_level: riskLevel,
+    risk_order: riskOrder,
+    atlas_action: atlasAction,
+    ahi_avg_30d: ahi,
+    leak_avg_30d: leak,
+    high_ahi: highAhi,
+    high_leak: highLeak
+  };
+}
+
+
+router.get("/rolling-80h-early-warning", async (req, res) => {
+  try {
+    const db = getDb(req);
+
+    const patientsResult = await query(
+      db,
+      `
+      with latest_compliance as (
+        select distinct on (tenant_slug, patient_external_id)
+          tenant_slug,
+          patient_external_id,
+          device_serial,
+          record_date,
+          month_start,
+          usage_hours,
+          month_usage_hours,
+          usage_hours_30d,
+          days_used_30d,
+          ahi_avg_30d,
+          leak_avg_30d
+        from public.compliance_nights
+        where tenant_slug = $1
+        order by tenant_slug, patient_external_id, record_date desc
+      )
+      select
+        p.patient_external_id,
+        p.patient_code,
+        p.doctor_external_id,
+        p.branch_code,
+        p.setup_date,
+        d.device_serial,
+        d.device_model,
+        d.last_data_date,
+        c.record_date,
+        c.month_start,
+        c.usage_hours,
+        c.month_usage_hours,
+        c.usage_hours_30d,
+        c.days_used_30d,
+        c.ahi_avg_30d,
+        c.leak_avg_30d
+      from public.patients p
+      left join public.devices d
+        on d.tenant_slug = p.tenant_slug
+       and d.patient_external_id = p.patient_external_id
+      left join latest_compliance c
+        on c.tenant_slug = p.tenant_slug
+       and c.patient_external_id = p.patient_external_id
+      where p.tenant_slug = $1
+      order by p.patient_external_id asc
+      `,
+      [PILOT_TENANT_ID]
+    );
+
+    const rows = patientsResult.rows.map(pilot20BuildRolling80hEarlyWarningRow);
+
+    const totalPatients = rows.length;
+    const safe = rows.filter((r) => r.risk_level === "SAFE").length;
+    const onTrack = rows.filter((r) => r.risk_level === "ON_TRACK").length;
+    const watch = rows.filter((r) => r.risk_level === "WATCH").length;
+    const rescue = rows.filter((r) => r.risk_level === "RESCUE").length;
+    const critical = rows.filter((r) => r.risk_level === "CRITICAL").length;
+    const urgent = rescue + critical;
+    const actionable = watch + rescue + critical;
+    const already80h = rows.filter((r) => r.is_80h_compliant).length;
+    const below80h = totalPatients - already80h;
+    const highAhi = rows.filter((r) => r.high_ahi).length;
+    const highLeak = rows.filter((r) => r.high_leak).length;
+
+    const topRiskRows = rows
+      .slice()
+      .sort((a, b) => {
+        if ((b.risk_order || 0) !== (a.risk_order || 0)) return (b.risk_order || 0) - (a.risk_order || 0);
+        if ((b.required_daily_hours || 0) !== (a.required_daily_hours || 0)) return (b.required_daily_hours || 0) - (a.required_daily_hours || 0);
+        return (a.days_remaining || 0) - (b.days_remaining || 0);
+      });
+
+    const urgentRiskRate = totalPatients > 0 ? Math.round((urgent / totalPatients) * 1000) / 10 : 0;
+    const complianceRate = totalPatients > 0 ? Math.round((already80h / totalPatients) * 1000) / 10 : 0;
+
+    let conclusion = "Enter patients and upload AirView data to activate rolling 80h early warning.";
+    if (totalPatients > 0) {
+      if (urgent > 0) {
+        conclusion = "Immediate action required: some patients are at RESCUE or CRITICAL risk inside their own 30-day 80h window.";
+      } else if (watch > 0) {
+        conclusion = "Some patients need monitoring before their individual 80h window closes.";
+      } else {
+        conclusion = "Current pilot patients are under control based on available AirView data.";
+      }
+    }
+
+    res.json({
+      ok: true,
+      tenant_id: PILOT_TENANT_ID,
+      module: "pilot20_live_rolling_80h_early_warning_patient_rescue_report",
+      logic: "individual_rolling_30_day_80h_window",
+      summary: {
+        total_patients: totalPatients,
+        already_80h: already80h,
+        below_80h: below80h,
+        safe,
+        on_track: onTrack,
+        watch,
+        rescue,
+        critical,
+        urgent,
+        actionable,
+        high_ahi: highAhi,
+        high_leak: highLeak,
+        urgent_risk_rate: urgentRiskRate,
+        compliance_rate: complianceRate
+      },
+      conclusion,
+      rows: topRiskRows
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "pilot20_rolling_80h_early_warning_failed",
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
+
 
 
 

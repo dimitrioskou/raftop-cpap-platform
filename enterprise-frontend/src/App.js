@@ -1,4 +1,5 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import Pilot20RollingEarlyWarningReportPage from "./pages/Pilot20RollingEarlyWarningReportPage";
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   BrowserRouter,
   Link,
@@ -1225,6 +1226,7 @@ function AppRoutes() {
               <Route path="/pilot20/import-history" element={<Pilot20ImportHistoryPage />} />
               <Route path="/pilot20/unmatched-devices" element={<Pilot20UnmatchedDevicesPage />} />
               <Route path="/pilot20/monthly-value-report" element={<Pilot20MonthlyValueReportPage />} />
+              <Route path="/pilot20/rolling-80h-report" element={<Pilot20RollingEarlyWarningReportPage />} />
       </Routes>
   );
 }
@@ -1789,6 +1791,7 @@ const miniPre = {
   maxHeight: 220,
   fontSize: 11
 };
+
 
 
 

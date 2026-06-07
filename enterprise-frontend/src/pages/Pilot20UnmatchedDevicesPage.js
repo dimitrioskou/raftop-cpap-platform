@@ -79,6 +79,7 @@ export default function Pilot20UnmatchedDevicesPage() {
           <a href="/pilot20/usage-upload" style={secondaryButtonStyle}>Upload CSV</a>
           <a href="/pilot20/import-history" style={secondaryButtonStyle}>Import History</a>
           <a href="/pilot20/rescue-monitor" style={primaryLinkStyle}>Rescue Monitor</a>
+          <a href="/pilot20/rolling-80h-report" style={secondaryButtonStyle}>Rolling 80h Report</a>
           <a href="/pilot20/monthly-value-report" style={secondaryButtonStyle}>Monthly Report</a>
           <button type="button" onClick={loadData} style={secondaryButtonStyle}>Refresh</button>
         </div>
@@ -302,4 +303,5 @@ const infoStyle = {
   borderRadius: 12,
   fontWeight: 800
 };
+
 
