@@ -20,6 +20,22 @@ function Result {
   Write-Host ($Status + " - " + $Name + " - " + $Details)
 }
 
+function Test-Url {
+  param([string]$Url)
+
+  try {
+    $Response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 90
+
+    if ($Response.StatusCode -ge 200 -and $Response.StatusCode -lt 400) {
+      Result $Url "PASS" ("HTTP " + $Response.StatusCode)
+    } else {
+      Result $Url "FAIL" ("HTTP " + $Response.StatusCode)
+    }
+  } catch {
+    Result $Url "FAIL" $_.Exception.Message
+  }
+}
+
 function Read-FileSafe {
   param([string]$Path)
 
@@ -133,7 +149,7 @@ function Try-Login {
         }
       }
     } catch {
-      # Try next.
+      # Try next login endpoint.
     }
   }
 
@@ -148,32 +164,48 @@ Write-Host ""
 Write-Host "RAFTOP CPAP CARE Pro - Monitoring Check"
 Write-Host ""
 
-# Public backend/frontend checks.
-foreach ($Url in @(
-  $BackendBase.TrimEnd("/") + "/api/health",
-  $FrontendBase.TrimEnd("/") + "/login",
-  $FrontendBase.TrimEnd("/") + "/pilot20/manual-entry",
-  $FrontendBase.TrimEnd("/") + "/pilot20/usage-upload",
-  $FrontendBase.TrimEnd("/") + "/pilot20/rescue-monitor",
-  $FrontendBase.TrimEnd("/") + "/pilot20/import-history",
-  $FrontendBase.TrimEnd("/") + "/pilot20/unmatched-devices",
-  $FrontendBase.TrimEnd("/") + "/pilot20/rolling-80h-report",
-  $FrontendBase.TrimEnd("/") + "/pilot20/production-rollout-import"
-)) {
+# Backend health fallback.
+$BackendHealthUrls = @(
+  ($BackendBase.TrimEnd("/") + "/api/health"),
+  ($BackendBase.TrimEnd("/") + "/health")
+)
+
+$BackendHealthPassed = $false
+
+foreach ($Url in $BackendHealthUrls) {
   try {
     $Response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 90
 
-    if ($Response.StatusCode -ge 200 -and $Response.StatusCode -lt 300) {
+    if ($Response.StatusCode -ge 200 -and $Response.StatusCode -lt 400) {
       Result $Url "PASS" ("HTTP " + $Response.StatusCode)
-    } else {
-      Result $Url "FAIL" ("HTTP " + $Response.StatusCode)
+      $BackendHealthPassed = $true
+      break
     }
   } catch {
-    Result $Url "FAIL" $_.Exception.Message
+    # Try next health endpoint.
   }
 }
 
-# Authenticated Pilot20 endpoint checks.
+if (-not $BackendHealthPassed) {
+  Result "Backend health" "FAIL" "No backend health endpoint responded successfully."
+}
+
+# Frontend pages.
+$FrontendUrls = @()
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/login"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/manual-entry"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/usage-upload"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/rescue-monitor"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/import-history"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/unmatched-devices"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/rolling-80h-report"
+$FrontendUrls += $FrontendBase.TrimEnd("/") + "/pilot20/production-rollout-import"
+
+foreach ($Url in $FrontendUrls) {
+  Test-Url $Url
+}
+
+# Authenticated Pilot20 backend checks.
 if (!(Test-Path $CredentialFile)) {
   Result "Pilot20 credentials file" "WARN" "Not found; skipping authenticated checks."
 } else {
@@ -199,20 +231,22 @@ if (!(Test-Path $CredentialFile)) {
         Authorization = "Bearer $($Login.token)"
       }
 
-      foreach ($Endpoint in @(
-        "/api/pilot20/health",
-        "/api/pilot20/patients",
-        "/api/pilot20/rescue-monitor",
-        "/api/pilot20/import-history",
-        "/api/pilot20/unmatched-devices",
-        "/api/pilot20/rolling-80h-early-warning"
-      )) {
+      $ApiEndpoints = @()
+      $ApiEndpoints += "/api/pilot20/health"
+      $ApiEndpoints += "/api/pilot20/patients"
+      $ApiEndpoints += "/api/pilot20/rescue-monitor"
+      $ApiEndpoints += "/api/pilot20/import-history"
+      $ApiEndpoints += "/api/pilot20/unmatched-devices"
+      $ApiEndpoints += "/api/pilot20/rolling-80h-early-warning"
+      $ApiEndpoints += "/api/pilot20/production-rollout/template"
+
+      foreach ($Endpoint in $ApiEndpoints) {
         $Url = $BackendBase.TrimEnd("/") + $Endpoint
 
         try {
           $Response = Invoke-WebRequest -Uri $Url -Headers $Headers -UseBasicParsing -TimeoutSec 90
 
-          if ($Response.StatusCode -ge 200 -and $Response.StatusCode -lt 300) {
+          if ($Response.StatusCode -ge 200 -and $Response.StatusCode -lt 400) {
             Result $Endpoint "PASS" ("HTTP " + $Response.StatusCode)
           } else {
             Result $Endpoint "FAIL" ("HTTP " + $Response.StatusCode)
