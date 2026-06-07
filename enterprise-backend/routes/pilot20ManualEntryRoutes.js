@@ -899,6 +899,43 @@ function pilot20FindHeader(headers, aliases) {
   return match ? match.original : "";
 }
 
+
+function pilot20LoadLockedAirViewAliases() {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const configPath = path.join(__dirname, "..", "config", "pilot20AirViewHeaderMap.locked.json");
+
+    if (!fs.existsSync(configPath)) {
+      return {};
+    }
+
+    const raw = fs.readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+
+    return parsed.locked_aliases || {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function pilot20MergeAirViewAliasMap(baseAliasMap, lockedAliases) {
+  const merged = { ...baseAliasMap };
+
+  Object.keys(lockedAliases || {}).forEach((canonical) => {
+    const values = Array.isArray(lockedAliases[canonical])
+      ? lockedAliases[canonical]
+      : [lockedAliases[canonical]];
+
+    merged[canonical] = Array.from(new Set([
+      ...(merged[canonical] || []),
+      ...values.filter(Boolean)
+    ]));
+  });
+
+  return merged;
+}
+
 function pilot20NormalizeAirViewUsageCsv(parsed) {
   const originalHeaders = parsed.headers || [];
 
@@ -988,9 +1025,12 @@ function pilot20NormalizeAirViewUsageCsv(parsed) {
     ]
   };
 
+  const lockedAliases = pilot20LoadLockedAirViewAliases();
+  const effectiveAliasMap = pilot20MergeAirViewAliasMap(aliasMap, lockedAliases);
+
   const resolved = {};
-  Object.keys(aliasMap).forEach((canonical) => {
-    resolved[canonical] = pilot20FindHeader(originalHeaders, aliasMap[canonical]);
+  Object.keys(effectiveAliasMap).forEach((canonical) => {
+    resolved[canonical] = pilot20FindHeader(originalHeaders, effectiveAliasMap[canonical]);
   });
 
   const minimalMissing = [];
@@ -1482,6 +1522,7 @@ router.get("/import-history/:batchId", async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 

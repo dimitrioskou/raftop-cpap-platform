@@ -1,0 +1,22 @@
+﻿{
+    "phase":  "PHASE117_REAL_AIRVIEW_EXPORT_HARD_LOCK_MAPPER",
+    "generated_at":  "2026-06-07 17:59:58",
+    "sample_file":  "PLACE_REAL_ANONYMIZED_AIRVIEW_CSV_IN_C:\\Users\\Administrator\\Desktop\\RAFTOP_CPA_CARE\\data-intake\\raftopoulos-pilot-20\\real-airview-samples",
+    "delimiter":  null,
+    "source_headers":  [
+
+                       ],
+    "forbidden_headers_detected":  [
+
+                                   ],
+    "canonical_to_source_header":  {
+
+                                   },
+    "locked_aliases":  {
+
+                       },
+    "missing_required_fields":  [
+
+                                ],
+    "status":  "WAITING_FOR_REAL_AIRVIEW_EXPORT"
+}
